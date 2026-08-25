@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <!-- Колесо в стилистике сайта: цветные секторы, оправа, стрелка -->
+  <g transform="translate(32 34)">
+    <circle r="27" fill="#633d26"/>
+    <g>
+      <path d="M0 0 L0-24 A24 24 0 0 1 16.97-16.97 Z" fill="#e95448"/>
+      <path d="M0 0 L16.97-16.97 A24 24 0 0 1 24 0 Z" fill="#f2b83f"/>
+      <path d="M0 0 L24 0 A24 24 0 0 1 16.97 16.97 Z" fill="#4da0ab"/>
+      <path d="M0 0 L16.97 16.97 A24 24 0 0 1 0 24 Z" fill="#6aa052"/>
+      <path d="M0 0 L0 24 A24 24 0 0 1-16.97 16.97 Z" fill="#8b67a5"/>
+      <path d="M0 0 L-16.97 16.97 A24 24 0 0 1-24 0 Z" fill="#df7442"/>
+      <path d="M0 0 L-24 0 A24 24 0 0 1-16.97-16.97 Z" fill="#367f95"/>
+      <path d="M0 0 L-16.97-16.97 A24 24 0 0 1 0-24 Z" fill="#d94b63"/>
+    </g>
+    <circle r="24" fill="none" stroke="#f8d36b" stroke-width="4"/>
+    <circle r="6.5" fill="#df3f36" stroke="#f8d16d" stroke-width="2.5"/>
+  </g>
+  <path d="M32 14 L23 -1 L41 -1 Z" fill="#df3f36" stroke="#7c1f1f" stroke-width="2"
+        stroke-linejoin="round" transform="translate(0 6)"/>
+</svg>

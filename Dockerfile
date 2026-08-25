@@ -8,6 +8,7 @@ LABEL org.opencontainers.image.title="Колесо фортуны" \
 
 COPY docker/nginx.conf /etc/nginx/conf.d/default.conf
 COPY index.html /usr/share/nginx/html/
+COPY favicon.svg favicon.png apple-touch-icon.png /usr/share/nginx/html/
 COPY css/       /usr/share/nginx/html/css/
 COPY js/        /usr/share/nginx/html/js/
 COPY music/     /usr/share/nginx/html/music/
