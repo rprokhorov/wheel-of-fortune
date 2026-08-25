@@ -19,9 +19,10 @@
 
   // Треки: 20-секундные фрагменты, зацикливаются на всё время вращения.
   const TRACKS = {
-    none:     { name: 'Без музыки',      src: null },
-    kalambur: { name: 'Деревня дураков', src: 'music/kalambur.m4a' },
-    nupogodi: { name: 'Ну, погоди!',     src: 'music/nu-pogodi.m4a' }
+    none:     { name: 'Без музыки',        src: null },
+    kalambur: { name: 'Деревня дураков',   src: 'music/kalambur.m4a' },
+    nupogodi: { name: 'Ну, погоди!',       src: 'music/nu-pogodi.m4a' },
+    benny:    { name: 'Шоу Бенни Хилла',   src: 'music/benny-hill.m4a' }
   };
 
   // ---------- Состояние ----------
