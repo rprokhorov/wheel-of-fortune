@@ -411,9 +411,11 @@ h1 {
 }
 
 .people-editor__actions button {
-  flex: 1;
-  min-width: 92px;
-  padding: 8px 10px;
+  /* ширина по содержимому: надписи разной длины не режутся и не вылезают */
+  flex: 1 1 auto;
+  min-width: fit-content;
+  padding: 8px 12px;
+  white-space: nowrap;
   border: 2px solid #b6844d;
   border-radius: 9px;
   background: var(--cream);
@@ -804,7 +806,7 @@ footer i { color: var(--red); font-style: normal; }
   .game-card { padding: 26px 16px; border-radius: 20px; }
   .sun { width: 56px; height: 56px; }
   .spin-button { font-size: 21px; padding: 14px 18px; }
-  .people-editor__actions button { min-width: 76px; font-size: 12px; }
+  .people-editor__actions button { padding: 8px 9px; font-size: 12px; }
   .decision-dialog strong { font-size: 27px; }
 }
 
