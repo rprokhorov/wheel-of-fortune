@@ -3,113 +3,140 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="description" content="Колесо фортуны — рандомайзер с настраиваемым списком, музыкой и конфетти.">
 <title>Колесо фортуны</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Neucha&family=Rubik:wght@500;600;700;800&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="css/style.css">
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🎡</text></svg>">
 </head>
 <body>
-<div class="app">
-  <header class="app__header">
-    <h1>🎡 Колесо фортуны</h1>
-    <button id="theme-toggle" class="icon-btn" title="Сменить тему">🌙</button>
+
+<div class="sky" aria-hidden="true">
+  <span class="cloud cloud--one"></span>
+  <span class="cloud cloud--two"></span>
+  <span class="sun"></span>
+</div>
+
+<main class="page-shell">
+  <header class="hero">
+    <p class="eyebrow"><span>✦</span> испытайте удачу <span>✦</span></p>
+    <h1>А ну-ка, крути!</h1>
+    <p class="subtitle">Колесо всё решит. Мы тут совершенно ни при чём.</p>
   </header>
 
-  <main class="layout">
-    <section class="wheel-panel">
-      <div class="wheel-wrap">
-        <div class="pointer"></div>
-        <canvas id="wheel" width="520" height="520"></canvas>
-        <button id="spin" class="spin-btn">Крутить</button>
+  <section class="game-card" aria-label="Колесо фортуны">
+    <div class="game-card__tape game-card__tape--left" aria-hidden="true"></div>
+    <div class="game-card__tape game-card__tape--right" aria-hidden="true"></div>
+
+    <div class="wheel-side">
+      <div class="pointer" id="pointer" aria-hidden="true"><span></span></div>
+      <div class="wheel-frame">
+        <canvas id="wheel" width="700" height="700" aria-label="Колесо с вариантами"></canvas>
+        <div class="wheel-cap" aria-hidden="true"><span>!</span></div>
       </div>
-      <p class="hint">Нажмите на колесо или кнопку, чтобы крутить</p>
-    </section>
+      <div class="wheel-shadow" aria-hidden="true"></div>
+    </div>
 
-    <aside class="side-panel">
-      <div class="card">
-        <div class="card__head">
-          <h2>Список вариантов</h2>
-          <span class="counter" id="counter">0</span>
-        </div>
-
-        <form id="add-form" class="add-form">
-          <input type="text" id="new-item" placeholder="Новый вариант…" maxlength="60" autocomplete="off">
-          <button type="submit" class="btn btn--primary">Добавить</button>
-        </form>
-
-        <ul id="items" class="items"></ul>
-
-        <div class="card__actions">
-          <button id="shuffle" class="btn">Перемешать</button>
-          <button id="clear" class="btn btn--danger">Очистить</button>
-        </div>
+    <div class="control-side">
+      <div class="result-box" id="result-box" aria-live="polite">
+        <span class="result-box__label">Колесо выбрало</span>
+        <strong id="result-text">Кому же повезёт?</strong>
       </div>
 
-      <div class="card">
-        <div class="card__head"><h2>Настройки</h2></div>
-
-        <div class="field">
-          <label class="field__label" for="duration">
-            Длительность вращения
-            <output id="duration-out">5 с</output>
-          </label>
-          <input type="range" id="duration" min="1" max="30" step="1" value="5">
+      <details class="people-editor" id="items-editor">
+        <summary>
+          <span>Список вариантов</span>
+          <strong id="counter">0</strong>
+          <i>изменить</i>
+        </summary>
+        <div class="people-editor__body">
+          <label for="items-input">По одному варианту на строке</label>
+          <textarea id="items-input" rows="6" spellcheck="false"></textarea>
+          <div class="people-editor__actions">
+            <button id="apply-items" type="button">Применить</button>
+            <button id="shuffle" type="button">Перемешать</button>
+            <button id="copy-link" type="button">Скопировать ссылку</button>
+            <button id="export" type="button">Экспорт</button>
+            <button id="import-btn" type="button">Импорт</button>
+            <input type="file" id="import" accept="application/json,.json" hidden>
+          </div>
         </div>
+      </details>
 
-        <div class="field">
-          <label class="field__label" for="music">Фоновая музыка</label>
-          <select id="music" class="select"></select>
+      <div class="spin-duration">
+        <div class="spin-duration__label">
+          <label for="duration">Время вращения</label>
+          <output id="duration-out" for="duration">20 сек</output>
         </div>
-
-        <div class="field" id="volume-field">
-          <label class="field__label" for="volume">
-            Громкость музыки
-            <output id="volume-out">50%</output>
-          </label>
-          <input type="range" id="volume" min="0" max="100" step="5" value="50">
-        </div>
-
-        <label class="switch">
-          <input type="checkbox" id="remove-winner">
-          <span>Удалять победителя после розыгрыша</span>
-        </label>
-        <label class="switch">
-          <input type="checkbox" id="sound-on" checked>
-          <span>Звуковые эффекты (тиканье и фанфары)</span>
-        </label>
-        <div class="card__actions">
-          <button id="export" class="btn">Экспорт JSON</button>
-          <button id="import-btn" class="btn">Импорт JSON</button>
-          <input type="file" id="import" accept="application/json,.json" hidden>
+        <input id="duration" type="range" min="1" max="30" step="1" value="20">
+        <div class="spin-duration__scale" aria-hidden="true">
+          <span>1 сек</span>
+          <span>30 сек</span>
         </div>
       </div>
 
-      <div class="card">
-        <div class="card__head"><h2>Ссылка на эту раскладку</h2></div>
-        <p class="note">Список, музыка, длительность и настройки закодированы в адресе страницы — им можно поделиться.</p>
-        <div class="card__actions">
-          <button id="copy-link" class="btn btn--primary">Скопировать ссылку</button>
-          <button id="reset-link" class="btn">Сбросить к значениям по умолчанию</button>
+      <button class="spin-button" id="spin" type="button">
+        <span class="spin-button__icon">↻</span>
+        <span class="spin-button__text">Крутить колесо</span>
+      </button>
+
+      <div class="music-control">
+        <div class="music-control__topline">
+          <div class="equalizer" id="equalizer" aria-hidden="true"><i></i><i></i><i></i><i></i></div>
+          <select class="track-select" id="music" aria-label="Мелодия вращения"></select>
+          <button class="sound-button" id="sound-on" type="button" aria-label="Выключить звуковые эффекты" aria-pressed="false">
+            <span aria-hidden="true">♪</span>
+          </button>
         </div>
+        <div class="volume-row" id="volume-field">
+          <label for="volume">Громкость</label>
+          <input id="volume" type="range" min="0" max="100" step="5" value="50">
+          <output id="volume-out">50%</output>
+        </div>
+        <p>Мелодия играет только во время вращения</p>
       </div>
 
-      <div class="card">
-        <div class="card__head">
-          <h2>История</h2>
-          <button id="clear-history" class="link-btn">очистить</button>
+      <details class="history-box">
+        <summary>
+          <span>История</span>
+          <strong id="history-count">0</strong>
+          <i>показать</i>
+        </summary>
+        <div class="history-box__body">
+          <ol id="history" class="history"></ol>
+          <button id="clear-history" type="button" class="link-btn">Очистить историю</button>
         </div>
-        <ol id="history" class="history"></ol>
-      </div>
-    </aside>
-  </main>
-</div>
+      </details>
 
-<div id="modal" class="modal" hidden>
-  <div class="modal__box">
-    <p class="modal__label">Выпало</p>
-    <p class="modal__winner" id="winner-text"></p>
-    <button id="modal-close" class="btn btn--primary">Отлично</button>
-  </div>
-</div>
+      <p class="hint">Пробел или клик по колесу — тоже крутит.</p>
+    </div>
+  </section>
+
+  <footer>
+    <span>Сделано с удачей</span>
+    <i aria-hidden="true">◆</i>
+    <span>и щепоткой безумия</span>
+  </footer>
+</main>
+
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+<dialog class="decision-dialog" id="decision-dialog">
+  <form method="dialog">
+    <span class="decision-dialog__eyebrow">Колесо выбрало</span>
+    <strong id="decision-name">Вариант</strong>
+    <p>Удалить его из списка перед следующим вращением?</p>
+    <div class="decision-dialog__actions">
+      <button class="decision-dialog__remove" id="remove-btn" value="remove">Да, удалить</button>
+      <button class="decision-dialog__keep" value="keep" autofocus>Нет, оставить</button>
+    </div>
+    <small id="decision-hint"></small>
+  </form>
+</dialog>
+
+<canvas id="confetti" aria-hidden="true"></canvas>
 
 <script src="js/app.js"></script>
 </body>

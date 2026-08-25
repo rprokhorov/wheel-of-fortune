@@ -1,25 +1,21 @@
 (() => {
   'use strict';
 
-  const STORAGE_KEY   = 'wof.items';
-  const HISTORY_KEY   = 'wof.history';
-  const SETTINGS_KEY  = 'wof.settings';
+  const STORAGE_KEY  = 'wof.items';
+  const HISTORY_KEY  = 'wof.history';
+  const SETTINGS_KEY = 'wof.settings';
 
   const DEFAULT_ITEMS = ['Пицца', 'Суши', 'Бургер', 'Паста', 'Салат', 'Шаурма'];
 
   const DEFAULT_SETTINGS = {
-    removeWinner: false,
     sound: true,
-    theme: 'light',
-    duration: 20,       // секунды вращения — под длину заглавного трека
+    duration: 20,       // секунды вращения — под длину трека
     music: 'kalambur',  // id трека из TRACKS | 'none'
     volume: 50          // 0..100
   };
 
-  const PALETTE = [
-    '#e5484d', '#f76b15', '#ffb224', '#46a758', '#12a594',
-    '#0091ff', '#5b6ef5', '#8e4ec6', '#e93d82', '#697177'
-  ];
+  const WHEEL_COLORS = ['#e95448', '#f2b83f', '#4da0ab', '#6aa052', '#8b67a5', '#df7442', '#367f95', '#d94b63'];
+  const WHEEL_ICONS  = ['★', '♫', '✦', '♛', '♥', '☀', '◆', '●'];
 
   // Треки: 20-секундные фрагменты, зацикливаются на всё время вращения.
   const TRACKS = {
@@ -33,24 +29,35 @@
   let history  = load(HISTORY_KEY, []);
   let settings = Object.assign({}, DEFAULT_SETTINGS, load(SETTINGS_KEY, {}));
 
-  let angle      = 0;      // текущий поворот колеса, рад
-  let spinning   = false;
+  let rotation = 0;        // текущий поворот колеса, рад
+  let spinning = false;
+  let pendingWinner = null;
 
   // ---------- DOM ----------
   const $ = (id) => document.getElementById(id);
-  const canvas  = $('wheel');
-  const ctx     = canvas.getContext('2d');
-  const listEl  = $('items');
-  const histEl  = $('history');
-  const spinBtn = $('spin');
-  const modal   = $('modal');
+  const canvas     = $('wheel');
+  const ctx        = canvas.getContext('2d');
+  const spinBtn    = $('spin');
+  const spinText   = spinBtn.querySelector('.spin-button__text');
+  const pointer    = $('pointer');
+  const resultBox  = $('result-box');
+  const resultText = $('result-text');
+  const dialog     = $('decision-dialog');
+  const equalizer  = $('equalizer');
+  const durInput   = $('duration');
+  const durOut     = $('duration-out');
+  const musicSel   = $('music');
+  const volInput   = $('volume');
+  const volOut     = $('volume-out');
+  const volField   = $('volume-field');
+  const soundBtn   = $('sound-on');
+  const itemsInput = $('items-input');
 
   function load(key, fallback) {
     try {
       const raw = localStorage.getItem(key);
       if (!raw) return fallback;
-      const val = JSON.parse(raw);
-      return val ?? fallback;
+      return JSON.parse(raw) ?? fallback;
     } catch (_) {
       return fallback;
     }
@@ -65,18 +72,18 @@
     syncUrl();
   }
 
-  const colorOf = (i) => PALETTE[i % PALETTE.length];
-  const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
+  const clamp   = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
+  const colorOf = (i) => WHEEL_COLORS[i % WHEEL_COLORS.length];
+  const iconOf  = (i) => WHEEL_ICONS[i % WHEEL_ICONS.length];
 
   // ---------- Синхронизация со строкой запроса ----------
-  // Параметры: items, duration, music, volume, remove, sound, theme
+  // Параметры: items, duration, music, volume, sound
   function readUrl() {
     const q = new URLSearchParams(location.search);
     if (![...q.keys()].length) return;
 
     if (q.has('items')) {
-      const list = q.get('items').split(',').map(s => s.trim()).filter(Boolean);
-      items = list;  // пустой список из URL — валидное состояние
+      items = q.get('items').split(',').map(s => s.trim()).filter(Boolean);
     }
     if (q.has('duration')) {
       const d = parseInt(q.get('duration'), 10);
@@ -90,9 +97,7 @@
       const m = q.get('music');
       settings.music = TRACKS[m] ? m : 'none';
     }
-    if (q.has('remove')) settings.removeWinner = isTruthy(q.get('remove'));
-    if (q.has('sound'))  settings.sound        = isTruthy(q.get('sound'));
-    if (q.has('theme'))  settings.theme        = q.get('theme') === 'dark' ? 'dark' : 'light';
+    if (q.has('sound')) settings.sound = isTruthy(q.get('sound'));
   }
 
   const isTruthy = (v) => v === '1' || v === 'true' || v === 'yes' || v === 'on';
@@ -103,96 +108,134 @@
     q.set('duration', String(settings.duration));
     q.set('music',    settings.music);
     q.set('volume',   String(settings.volume));
-    q.set('remove',   settings.removeWinner ? '1' : '0');
     q.set('sound',    settings.sound ? '1' : '0');
-    q.set('theme',    settings.theme);
     return q.toString();
   }
 
   function syncUrl() {
-    const url = location.pathname + '?' + buildQuery();
-    history_replaceState(url);
-  }
-
-  // отдельная обёртка, чтобы не путать с массивом history
-  function history_replaceState(url) {
-    try { window.history.replaceState(null, '', url); } catch (_) { /* file:// */ }
+    try {
+      window.history.replaceState(null, '', location.pathname + '?' + buildQuery());
+    } catch (_) { /* file:// */ }
   }
 
   // ---------- Отрисовка колеса ----------
   function drawWheel() {
     const size = canvas.width;
-    const cx = size / 2, cy = size / 2, r = size / 2 - 10;
+    const center = size / 2;
+    const radius = center - 22;
 
     ctx.clearRect(0, 0, size, size);
 
     if (items.length === 0) {
+      ctx.save();
+      ctx.translate(center, center);
       ctx.beginPath();
-      ctx.arc(cx, cy, r, 0, Math.PI * 2);
-      ctx.fillStyle = cssVar('--border', '#ddd');
+      ctx.arc(0, 0, radius, 0, Math.PI * 2);
+      ctx.fillStyle = '#e8d5ae';
       ctx.fill();
-      ctx.fillStyle = cssVar('--muted', '#888');
-      ctx.font = '600 18px -apple-system, sans-serif';
+      ctx.strokeStyle = '#f8d36b';
+      ctx.lineWidth = 13;
+      ctx.stroke();
+      ctx.fillStyle = '#8a5a33';
+      ctx.font = '32px Neucha, cursive';
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
-      ctx.fillText('Добавьте варианты', cx, cy + 70);
+      ctx.fillText('Добавьте варианты', 0, 90);
+      ctx.restore();
       return;
     }
 
-    const step = (Math.PI * 2) / items.length;
+    const slice = (Math.PI * 2) / items.length;
 
-    items.forEach((label, i) => {
-      const start = angle + i * step;
-      const end   = start + step;
+    ctx.save();
+    ctx.translate(center, center);
+    ctx.rotate(rotation);
+
+    items.forEach((label, index) => {
+      // Сектор 0 центрирован под указателем при rotation = 0
+      const start  = -Math.PI / 2 - slice / 2 + index * slice;
+      const end    = start + slice;
+      const middle = start + slice / 2;
 
       ctx.beginPath();
-      ctx.moveTo(cx, cy);
-      ctx.arc(cx, cy, r, start, end);
+      ctx.moveTo(0, 0);
+      ctx.arc(0, 0, radius, start, end);
       ctx.closePath();
-      ctx.fillStyle = colorOf(i);
+      ctx.fillStyle = colorOf(index);
       ctx.fill();
-      ctx.strokeStyle = 'rgba(255,255,255,.55)';
-      ctx.lineWidth = 2;
+      ctx.strokeStyle = '#613b28';
+      ctx.lineWidth = 5;
       ctx.stroke();
 
-      // Текст сектора
       ctx.save();
-      ctx.translate(cx, cy);
-      ctx.rotate(start + step / 2);
-      ctx.fillStyle = '#fff';
-      ctx.textAlign = 'right';
+      ctx.rotate(middle);
+      ctx.translate(radius * 0.69, 0);
+      ctx.rotate(Math.PI / 2);
+
+      // Иконка с мягкой тенью
+      ctx.fillStyle = 'rgba(55, 30, 22, 0.18)';
+      ctx.font = '42px Neucha, cursive';
+      ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
+      ctx.fillText(iconOf(index), 2, -46);
+      ctx.fillStyle = '#fff8de';
+      ctx.fillText(iconOf(index), 0, -49);
 
-      const maxWidth = r - 60;
-      const fontSize = items.length > 16 ? 12 : items.length > 10 ? 14 : 16;
-      ctx.font = `600 ${fontSize}px -apple-system, "Segoe UI", sans-serif`;
-
-      let text = label;
-      while (ctx.measureText(text).width > maxWidth && text.length > 1) {
-        text = text.slice(0, -1);
-      }
-      if (text !== label) text = text.slice(0, -1) + '…';
-
-      ctx.shadowColor = 'rgba(0,0,0,.35)';
-      ctx.shadowBlur = 3;
-      ctx.fillText(text, r - 18, 0);
+      const labelSize = items.length > 14 ? 13 : items.length > 10 ? 15 : items.length > 7 ? 18 : 23;
+      ctx.font = `700 ${labelSize}px Rubik, sans-serif`;
+      const short = label.length > 24 ? `${label.slice(0, 23)}…` : label;
+      wrapText(ctx, short.toUpperCase(), 0, 2, 142, labelSize + 3);
       ctx.restore();
+
+      // «Гвоздик» на границе сектора
+      const pegX = Math.cos(end) * (radius - 11);
+      const pegY = Math.sin(end) * (radius - 11);
+      ctx.beginPath();
+      ctx.arc(pegX, pegY, 8, 0, Math.PI * 2);
+      ctx.fillStyle = '#ffe28b';
+      ctx.fill();
+      ctx.strokeStyle = '#68402b';
+      ctx.lineWidth = 3;
+      ctx.stroke();
     });
 
-    // Ободок
     ctx.beginPath();
-    ctx.arc(cx, cy, r, 0, Math.PI * 2);
-    ctx.strokeStyle = 'rgba(0,0,0,.15)';
-    ctx.lineWidth = 6;
+    ctx.arc(0, 0, radius, 0, Math.PI * 2);
+    ctx.strokeStyle = '#f8d36b';
+    ctx.lineWidth = 13;
     ctx.stroke();
+    ctx.restore();
   }
 
-  function cssVar(name, fallback) {
-    return getComputedStyle(document.body).getPropertyValue(name).trim() || fallback;
+  function wrapText(context, text, x, y, maxWidth, lineHeight) {
+    const words = text.split(' ');
+    const lines = [];
+    let line = '';
+
+    words.forEach((word) => {
+      const test = line ? `${line} ${word}` : word;
+      if (context.measureText(test).width > maxWidth && line) {
+        lines.push(line);
+        line = word;
+      } else {
+        line = test;
+      }
+    });
+    lines.push(line);
+
+    const startY = y - ((lines.length - 1) * lineHeight) / 2;
+    lines.forEach((textLine, i) => {
+      context.strokeStyle = 'rgba(78, 41, 27, 0.24)';
+      context.lineWidth = 4;
+      context.strokeText(textLine, x, startY + i * lineHeight);
+      context.fillStyle = '#fff8de';
+      context.fillText(textLine, x, startY + i * lineHeight);
+    });
   }
 
   // ---------- Аудио ----------
   let audioCtx = null;
+  let audioEl  = null;
 
   function ac() {
     if (!audioCtx) {
@@ -226,9 +269,6 @@
       setTimeout(() => beep(f, 0.28, 0.14, 'triangle'), i * 110));
   }
 
-  // --- Фоновая музыка ---
-  let audioEl = null;
-
   function startMusic() {
     stopMusic();
     const vol = settings.volume / 100;
@@ -238,146 +278,212 @@
     audioEl = new Audio(track.src);
     audioEl.loop = true;          // трек короче вращения — играет по кругу
     audioEl.volume = vol;
-    audioEl.play().catch(() => { /* автоплей заблокирован до жеста */ });
+    audioEl.play()
+      .then(() => equalizer.classList.add('is-playing'))
+      .catch(() => { /* автоплей заблокирован до жеста */ });
   }
 
   function stopMusic() {
     if (audioEl) { audioEl.pause(); audioEl = null; }
+    equalizer.classList.remove('is-playing');
   }
 
   // ---------- Вращение ----------
-  const easeOut = (t) => 1 - Math.pow(1 - t, 4);
+  const easeOutQuint = (t) => 1 - Math.pow(1 - t, 5);
+  const normalizeAngle = (a) => ((a % (Math.PI * 2)) + Math.PI * 2) % (Math.PI * 2);
 
   function spin() {
     if (spinning || items.length === 0) return;
-    if (items.length === 1) { finish(0); return; }
 
     spinning = true;
     spinBtn.disabled = true;
+    durInput.disabled = true;
+    spinBtn.classList.add('is-spinning');
+    pointer.classList.add('is-ticking');
+    resultBox.classList.remove('is-winning');
+    resultText.textContent = 'Крутится…';
 
-    const step   = (Math.PI * 2) / items.length;
+    const slice  = (Math.PI * 2) / items.length;
     const winner = Math.floor(Math.random() * items.length);
 
-    // Указатель сверху = угол -PI/2. Центр сектора winner должен прийти туда.
-    const targetCenter = -Math.PI / 2;
-    const base = targetCenter - (winner * step + step / 2);
-
-    // Обороты пропорциональны длительности — короткое вращение не должно
-    // крутиться так же долго, как 30-секундное.
+    // Сектор 0 центрирован под указателем; чтобы туда пришёл winner,
+    // колесо доворачивается на -winner*slice.
     const turns = Math.max(3, Math.round(settings.duration * 1.6));
-
-    const from = angle;
-    let to = base + turns * Math.PI * 2;
+    const from = rotation;
+    let to = -winner * slice + turns * Math.PI * 2;
     while (to < from + Math.PI * 4) to += Math.PI * 2;
 
     const duration = settings.duration * 1000;
     const startTs  = performance.now();
-    let lastTick   = winner;
+    let lastIndex  = -1;
 
     startMusic();
 
     function frame(now) {
       const t = Math.min((now - startTs) / duration, 1);
-      angle = from + (to - from) * easeOut(t);
+      rotation = from + (to - from) * easeOutQuint(t);
       drawWheel();
 
       if (settings.sound) {
         const idx = currentIndex();
-        if (idx !== lastTick) { tick(); lastTick = idx; }
+        if (idx !== lastIndex) { tick(); lastIndex = idx; }
       }
 
       if (t < 1) {
         requestAnimationFrame(frame);
       } else {
-        angle = ((to % (Math.PI * 2)) + Math.PI * 2) % (Math.PI * 2);
+        rotation = normalizeAngle(to);
         drawWheel();
-        spinning = false;
-        spinBtn.disabled = false;
-        stopMusic();
-        finish(winner);
+        finishSpin(winner);
       }
     }
     requestAnimationFrame(frame);
   }
 
   function currentIndex() {
-    const step = (Math.PI * 2) / items.length;
-    let a = (-Math.PI / 2 - angle) % (Math.PI * 2);
-    if (a < 0) a += Math.PI * 2;
-    return Math.floor(a / step) % items.length;
+    const slice = (Math.PI * 2) / items.length;
+    return Math.round(normalizeAngle(-rotation) / slice) % items.length;
   }
 
-  function finish(idx) {
-    const winner = items[idx];
+  function finishSpin(winnerIndex) {
+    spinning = false;
+    spinBtn.disabled = false;
+    durInput.disabled = false;
+    spinBtn.classList.remove('is-spinning');
+    pointer.classList.remove('is-ticking');
+    spinText.textContent = 'Крутить ещё';
+    stopMusic();
+
+    const winner = items[winnerIndex];
+    resultText.textContent = winner;
+    resultBox.classList.add('is-winning');
+
     history.unshift({ name: winner, at: Date.now() });
-    if (settings.sound) fanfare();
-
-    $('winner-text').textContent = winner;
-    $('winner-text').style.color = colorOf(idx);
-    modal.hidden = false;
-
-    if (settings.removeWinner) {
-      items.splice(idx, 1);
-      angle = 0;
-    }
     save();
-    renderAll();
+    renderHistory();
+
+    if (settings.sound) fanfare();
+    launchConfetti(colorOf(winnerIndex));
+
+    setTimeout(() => askAboutWinner(winner), 650);
   }
 
-  // ---------- Рендер списка ----------
-  function renderItems() {
-    listEl.innerHTML = '';
-    $('counter').textContent = items.length;
+  // ---------- Диалог «удалить или оставить» ----------
+  function askAboutWinner(name) {
+    pendingWinner = name;
+    $('decision-name').textContent = name;
+    const isLast = items.length === 1;
+    $('remove-btn').disabled = isLast;
+    $('decision-hint').textContent = isLast ? 'Последний вариант удалить нельзя' : '';
+    dialog.returnValue = '';
+    dialog.showModal();
+  }
 
-    if (items.length === 0) {
-      const li = document.createElement('li');
-      li.className = 'empty';
-      li.textContent = 'Список пуст — добавьте первый вариант';
-      listEl.appendChild(li);
-      return;
+  dialog.addEventListener('close', () => {
+    if (dialog.returnValue === 'remove' && pendingWinner && items.length > 1) {
+      const removed = pendingWinner;
+      const idx = items.indexOf(removed);
+      if (idx !== -1) items.splice(idx, 1);
+      rotation = 0;
+      save();
+      renderAll();
+      resultText.textContent = `${removed} — удалён`;
+      showToast(`Осталось вариантов: ${items.length}`);
+    }
+    pendingWinner = null;
+  });
+
+  // ---------- Тост ----------
+  let toastTimer = null;
+  function showToast(message) {
+    const toast = $('toast');
+    clearTimeout(toastTimer);
+    toast.textContent = message;
+    toast.classList.add('is-visible');
+    toastTimer = setTimeout(() => toast.classList.remove('is-visible'), 2600);
+  }
+
+  // ---------- Конфетти ----------
+  const confettiCanvas = $('confetti');
+  const confettiCtx = confettiCanvas.getContext('2d');
+  const confettiPieces = [];
+  let confettiFrame = null;
+
+  function resizeConfetti() {
+    const ratio = window.devicePixelRatio || 1;
+    confettiCanvas.width  = window.innerWidth * ratio;
+    confettiCanvas.height = window.innerHeight * ratio;
+    confettiCtx.setTransform(ratio, 0, 0, ratio, 0, 0);
+  }
+
+  function launchConfetti(accent) {
+    const colors = [accent, '#f7bd36', '#4da0ab', '#fff6dc', '#df3f36'];
+    for (let i = 0; i < 90; i++) {
+      confettiPieces.push({
+        x: Math.random() * window.innerWidth,
+        y: -20 - Math.random() * 120,
+        w: 6 + Math.random() * 7,
+        h: 9 + Math.random() * 9,
+        color: colors[Math.floor(Math.random() * colors.length)],
+        vx: -1.4 + Math.random() * 2.8,
+        vy: 2.4 + Math.random() * 3.2,
+        rotation: Math.random() * Math.PI,
+        spin: -0.12 + Math.random() * 0.24
+      });
+    }
+    if (!confettiFrame) animateConfetti();
+  }
+
+  function animateConfetti() {
+    confettiCtx.clearRect(0, 0, window.innerWidth, window.innerHeight);
+
+    for (let i = confettiPieces.length - 1; i >= 0; i--) {
+      const p = confettiPieces[i];
+      p.x += p.vx;
+      p.y += p.vy;
+      p.vy += 0.04;
+      p.rotation += p.spin;
+
+      confettiCtx.save();
+      confettiCtx.translate(p.x, p.y);
+      confettiCtx.rotate(p.rotation);
+      confettiCtx.fillStyle = p.color;
+      confettiCtx.fillRect(-p.w / 2, -p.h / 2, p.w, p.h);
+      confettiCtx.restore();
+
+      if (p.y > window.innerHeight + 40) confettiPieces.splice(i, 1);
     }
 
-    items.forEach((name, i) => {
-      const li = document.createElement('li');
+    if (confettiPieces.length) {
+      confettiFrame = requestAnimationFrame(animateConfetti);
+    } else {
+      confettiCtx.clearRect(0, 0, window.innerWidth, window.innerHeight);
+      confettiFrame = null;
+    }
+  }
 
-      const dot = document.createElement('span');
-      dot.className = 'dot';
-      dot.style.background = colorOf(i);
-
-      const input = document.createElement('input');
-      input.className = 'name';
-      input.value = name;
-      input.maxLength = 60;
-      input.addEventListener('change', () => {
-        const v = input.value.trim();
-        if (v) { items[i] = v; } else { items.splice(i, 1); }
-        save(); renderAll();
-      });
-      input.addEventListener('keydown', (e) => { if (e.key === 'Enter') input.blur(); });
-
-      const del = document.createElement('button');
-      del.className = 'del';
-      del.textContent = '×';
-      del.title = 'Удалить';
-      del.addEventListener('click', () => {
-        items.splice(i, 1);
-        save(); renderAll();
-      });
-
-      li.append(dot, input, del);
-      listEl.appendChild(li);
-    });
+  // ---------- Рендер ----------
+  function renderItems() {
+    $('counter').textContent = items.length;
+    // не перетираем текст, пока пользователь его правит
+    if (document.activeElement !== itemsInput) {
+      itemsInput.value = items.join('\n');
+    }
   }
 
   function renderHistory() {
-    histEl.innerHTML = '';
+    const el = $('history');
+    $('history-count').textContent = history.length;
+    el.innerHTML = '';
+
     if (history.length === 0) {
       const li = document.createElement('li');
       li.className = 'empty';
       li.textContent = 'Пока пусто';
-      histEl.appendChild(li);
+      el.appendChild(li);
       return;
     }
+
     history.slice(0, 20).forEach((h) => {
       const li = document.createElement('li');
       const name = document.createElement('span');
@@ -386,7 +492,7 @@
       time.className = 'time';
       time.textContent = new Date(h.at).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
       li.append(name, time);
-      histEl.appendChild(li);
+      el.appendChild(li);
     });
   }
 
@@ -397,13 +503,6 @@
   }
 
   // ---------- Элементы управления ----------
-  const durInput  = $('duration');
-  const durOut    = $('duration-out');
-  const musicSel  = $('music');
-  const volInput  = $('volume');
-  const volOut    = $('volume-out');
-  const volField  = $('volume-field');
-
   function buildMusicOptions() {
     musicSel.innerHTML = '';
     Object.entries(TRACKS).forEach(([id, t]) => {
@@ -417,20 +516,27 @@
 
   function renderControls() {
     durInput.value = settings.duration;
-    durOut.textContent = settings.duration + ' с';
+    durOut.textContent = settings.duration + ' сек';
 
     volInput.value = settings.volume;
     volOut.textContent = settings.volume + '%';
     volField.hidden = settings.music === 'none';
 
+    soundBtn.classList.toggle('is-muted', !settings.sound);
+    soundBtn.setAttribute('aria-pressed', String(!settings.sound));
+    soundBtn.setAttribute('aria-label', settings.sound ? 'Выключить звуковые эффекты' : 'Включить звуковые эффекты');
+
     buildMusicOptions();
   }
 
   durInput.addEventListener('input', () => {
-    settings.duration = clamp(parseInt(durInput.value, 10) || 5, 1, 30);
-    durOut.textContent = settings.duration + ' с';
+    settings.duration = clamp(parseInt(durInput.value, 10) || 20, 1, 30);
+    durOut.textContent = settings.duration + ' сек';
   });
-  durInput.addEventListener('change', save);
+  durInput.addEventListener('change', () => {
+    save();
+    showToast(`Колесо будет крутиться ${settings.duration} сек`);
+  });
 
   volInput.addEventListener('input', () => {
     settings.volume = clamp(parseInt(volInput.value, 10) || 0, 0, 100);
@@ -441,19 +547,49 @@
 
   musicSel.addEventListener('change', () => {
     settings.music = musicSel.value;
-    save(); renderControls();
+    save();
+    renderControls();
   });
 
-  // ---------- События ----------
-  $('add-form').addEventListener('submit', (e) => {
-    e.preventDefault();
-    const input = $('new-item');
-    const value = input.value.trim();
-    if (!value) return;
-    // запятая одновременно разделяет ввод и разделяет items в URL
-    value.split(',').map(s => s.trim()).filter(Boolean).forEach(v => items.push(v));
-    input.value = '';
-    save(); renderAll();
+  soundBtn.addEventListener('click', () => {
+    settings.sound = !settings.sound;
+    save();
+    renderControls();
+    showToast(settings.sound ? 'Звуковые эффекты включены' : 'Звуковые эффекты выключены');
+  });
+
+  // ---------- Список ----------
+  function setItems(list) {
+    items = list;
+    rotation = 0;
+    save();
+    renderAll();
+  }
+
+  function parseItems(value) {
+    const seen = new Set();
+    return value
+      .split(/[\n,;]+/)
+      .map(s => s.trim())
+      .filter(s => {
+        if (!s) return false;
+        const key = s.toLocaleLowerCase('ru');
+        if (seen.has(key)) return false;   // дубликаты только запутывают колесо
+        seen.add(key);
+        return true;
+      })
+      .slice(0, 30);                       // больше 30 секторов нечитаемо
+  }
+
+  $('apply-items').addEventListener('click', () => {
+    const list = parseItems(itemsInput.value);
+    if (!list.length) {
+      showToast('Список не может быть пустым');
+      itemsInput.value = items.join('\n');
+      return;
+    }
+    setItems(list);
+    showToast(`Вариантов: ${list.length}`);
   });
 
   $('shuffle').addEventListener('click', () => {
@@ -461,74 +597,27 @@
       const j = Math.floor(Math.random() * (i + 1));
       [items[i], items[j]] = [items[j], items[i]];
     }
-    save(); renderAll();
-  });
-
-  $('clear').addEventListener('click', () => {
-    if (items.length && !confirm('Удалить все варианты?')) return;
-    items = [];
-    save(); renderAll();
-  });
-
-  $('clear-history').addEventListener('click', () => {
-    history = [];
-    save(); renderHistory();
+    setItems(items);
+    showToast('Перемешано');
   });
 
   $('copy-link').addEventListener('click', async () => {
     const url = location.origin + location.pathname + '?' + buildQuery();
-    const btn = $('copy-link');
     try {
       await navigator.clipboard.writeText(url);
-      btn.textContent = 'Скопировано ✓';
+      showToast('Ссылка скопирована');
     } catch (_) {
       prompt('Скопируйте ссылку:', url);
-      return;
-    }
-    setTimeout(() => { btn.textContent = 'Скопировать ссылку'; }, 1600);
-  });
-
-  $('reset-link').addEventListener('click', () => {
-    if (!confirm('Сбросить список и настройки к значениям по умолчанию?')) return;
-    items = DEFAULT_ITEMS.slice();
-    settings = Object.assign({}, DEFAULT_SETTINGS);
-    save(); applyTheme(); renderControls(); renderAll();
-  });
-
-  spinBtn.addEventListener('click', spin);
-  canvas.addEventListener('click', spin);
-
-  $('modal-close').addEventListener('click', () => { modal.hidden = true; });
-  modal.addEventListener('click', (e) => { if (e.target === modal) modal.hidden = true; });
-  document.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape') modal.hidden = true;
-    const tag = document.activeElement.tagName;
-    if (e.code === 'Space' && tag !== 'INPUT' && tag !== 'SELECT' && tag !== 'BUTTON') {
-      e.preventDefault();
-      modal.hidden ? spin() : (modal.hidden = true);
     }
   });
 
-  const removeChk = $('remove-winner');
-  const soundChk  = $('sound-on');
-  removeChk.addEventListener('change', () => { settings.removeWinner = removeChk.checked; save(); });
-  soundChk.addEventListener('change',  () => { settings.sound = soundChk.checked; save(); });
-
-  // Тема
-  const themeBtn = $('theme-toggle');
-  function applyTheme() {
-    document.documentElement.dataset.theme = settings.theme;
-    themeBtn.textContent = settings.theme === 'dark' ? '☀️' : '🌙';
-    removeChk.checked = !!settings.removeWinner;
-    soundChk.checked  = !!settings.sound;
-    drawWheel();
-  }
-  themeBtn.addEventListener('click', () => {
-    settings.theme = settings.theme === 'dark' ? 'light' : 'dark';
-    save(); applyTheme();
+  $('clear-history').addEventListener('click', () => {
+    history = [];
+    save();
+    renderHistory();
+    showToast('История очищена');
   });
 
-  // Экспорт / импорт
   $('export').addEventListener('click', () => {
     const blob = new Blob([JSON.stringify(items, null, 2)], { type: 'application/json' });
     const a = document.createElement('a');
@@ -548,22 +637,42 @@
         const data = JSON.parse(reader.result);
         const list = Array.isArray(data) ? data : data.items;
         if (!Array.isArray(list)) throw new Error('bad format');
-        items = list.map(String).map(s => s.trim()).filter(Boolean);
-        save(); renderAll();
+        const parsed = parseItems(list.map(String).join('\n'));
+        if (!parsed.length) throw new Error('empty');
+        setItems(parsed);
+        showToast(`Импортировано: ${parsed.length}`);
       } catch (_) {
-        alert('Не удалось прочитать файл. Ожидается JSON-массив строк.');
+        showToast('Не удалось прочитать файл');
       }
     };
     reader.readAsText(file);
     e.target.value = '';
   });
 
+  // ---------- События ----------
+  spinBtn.addEventListener('click', spin);
+  canvas.addEventListener('click', spin);
+
+  document.addEventListener('keydown', (e) => {
+    const tag = document.activeElement.tagName;
+    if (e.code === 'Space' && tag !== 'INPUT' && tag !== 'TEXTAREA' && tag !== 'SELECT' && tag !== 'BUTTON') {
+      e.preventDefault();
+      if (!dialog.open) spin();
+    }
+  });
+
+  window.addEventListener('resize', resizeConfetti);
   window.addEventListener('beforeunload', stopMusic);
 
   // ---------- Старт ----------
   readUrl();          // URL важнее сохранённого состояния
-  applyTheme();
+  resizeConfetti();
   renderControls();
   renderAll();
   syncUrl();
+
+  // Шрифты приходят с Google Fonts — перерисовать колесо, когда загрузятся
+  if (document.fonts && document.fonts.ready) {
+    document.fonts.ready.then(drawWheel);
+  }
 })();
