@@ -95,3 +95,61 @@ afconvert -f mp4f -d aac -b 128000 cut.wav music/файл.m4a     # закоди
 
 Чтобы добавить ещё трек, положите файл в `music/` и допишите строку в `TRACKS`
 в `js/app.js`: `id: { name: 'Название', src: 'music/файл.m4a' }`.
+
+## Развёртывание в Docker
+
+Два сервиса: `site` (nginx со статикой) и `caddy` (реверс-прокси с автоматическим TLS
+от Let's Encrypt). Наружу смотрит только Caddy, на портах 80 и 443.
+
+### На VPS
+
+Требуется: DNS-запись `wheel.rprokhorov.ru` → IP этого VPS и открытые порты 80/443
+(порт 80 нужен Let's Encrypt для проверки владения доменом).
+
+```bash
+git clone https://github.com/rprokhorov/wheel-of-fortune.git
+cd wheel-of-fortune
+cp .env.example .env      # при необходимости поправьте домен и почту
+docker compose up -d
+```
+
+Образ подтягивается готовым из `ghcr.io` — собирать на сервере не нужно.
+Обновление после нового коммита в `main`:
+
+```bash
+docker compose pull && docker compose up -d
+```
+
+Проверка:
+
+```bash
+docker compose ps
+docker compose logs -f caddy      # выпуск сертификата
+curl -I https://wheel.rprokhorov.ru/
+curl -s https://wheel.rprokhorov.ru/healthz
+```
+
+### Локально
+
+```bash
+docker compose up --build         # соберёт образ из исходников
+```
+
+Для локального запуска без домена и TLS удобнее обычный статичный сервер:
+`python3 -m http.server 8000`.
+
+### Переменные окружения
+
+| Переменная | Назначение |
+|---|---|
+| `SITE_DOMAIN` | домен для сертификата и маршрутизации Caddy |
+| `ACME_EMAIL`  | почта для уведомлений Let's Encrypt |
+| `TAG`         | тег образа из ghcr.io (`latest` или конкретный) |
+
+Сертификаты хранятся в томе `caddy_data` и переживают пересоздание контейнеров.
+
+## Сборка образа
+
+Workflow `.github/workflows/docker.yml` при каждом пуше в `main` собирает образ
+для `linux/amd64` и `linux/arm64` и публикует в `ghcr.io/rprokhorov/wheel-of-fortune`
+с тегами `latest` и коротким SHA коммита. Теги вида `v*` дают одноимённый тег образа.

@@ -1,0 +1,10 @@
+.git
+.github
+.gitignore
+README.md
+docker-compose.yml
+Dockerfile
+.dockerignore
+caddy/
+*.wav
+.DS_Store
