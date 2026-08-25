@@ -87,7 +87,7 @@
     }
     if (q.has('duration')) {
       const d = parseInt(q.get('duration'), 10);
-      if (Number.isFinite(d)) settings.duration = clamp(d, 1, 30);
+      if (Number.isFinite(d)) settings.duration = clamp(d, 1, 20);
     }
     if (q.has('volume')) {
       const v = parseInt(q.get('volume'), 10);
@@ -530,7 +530,7 @@
   }
 
   durInput.addEventListener('input', () => {
-    settings.duration = clamp(parseInt(durInput.value, 10) || 20, 1, 30);
+    settings.duration = clamp(parseInt(durInput.value, 10) || 20, 1, 20);
     durOut.textContent = settings.duration + ' сек';
   });
   durInput.addEventListener('change', () => {
