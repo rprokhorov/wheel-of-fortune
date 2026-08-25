@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Колесо фортуны</title>
+<link rel="stylesheet" href="css/style.css">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🎡</text></svg>">
+</head>
+<body>
+<div class="app">
+  <header class="app__header">
+    <h1>🎡 Колесо фортуны</h1>
+    <button id="theme-toggle" class="icon-btn" title="Сменить тему">🌙</button>
+  </header>
+
+  <main class="layout">
+    <section class="wheel-panel">
+      <div class="wheel-wrap">
+        <div class="pointer"></div>
+        <canvas id="wheel" width="520" height="520"></canvas>
+        <button id="spin" class="spin-btn">Крутить</button>
+      </div>
+      <p class="hint">Нажмите на колесо или кнопку, чтобы крутить</p>
+    </section>
+
+    <aside class="side-panel">
+      <div class="card">
+        <div class="card__head">
+          <h2>Список вариантов</h2>
+          <span class="counter" id="counter">0</span>
+        </div>
+
+        <form id="add-form" class="add-form">
+          <input type="text" id="new-item" placeholder="Новый вариант…" maxlength="60" autocomplete="off">
+          <button type="submit" class="btn btn--primary">Добавить</button>
+        </form>
+
+        <ul id="items" class="items"></ul>
+
+        <div class="card__actions">
+          <button id="shuffle" class="btn">Перемешать</button>
+          <button id="clear" class="btn btn--danger">Очистить</button>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card__head"><h2>Настройки</h2></div>
+
+        <div class="field">
+          <label class="field__label" for="duration">
+            Длительность вращения
+            <output id="duration-out">5 с</output>
+          </label>
+          <input type="range" id="duration" min="1" max="30" step="1" value="5">
+        </div>
+
+        <div class="field">
+          <label class="field__label" for="music">Фоновая музыка</label>
+          <select id="music" class="select"></select>
+        </div>
+
+        <div class="field" id="volume-field">
+          <label class="field__label" for="volume">
+            Громкость музыки
+            <output id="volume-out">50%</output>
+          </label>
+          <input type="range" id="volume" min="0" max="100" step="5" value="50">
+        </div>
+
+        <label class="switch">
+          <input type="checkbox" id="remove-winner">
+          <span>Удалять победителя после розыгрыша</span>
+        </label>
+        <label class="switch">
+          <input type="checkbox" id="sound-on" checked>
+          <span>Звуковые эффекты (тиканье и фанфары)</span>
+        </label>
+        <div class="card__actions">
+          <button id="export" class="btn">Экспорт JSON</button>
+          <button id="import-btn" class="btn">Импорт JSON</button>
+          <input type="file" id="import" accept="application/json,.json" hidden>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card__head"><h2>Ссылка на эту раскладку</h2></div>
+        <p class="note">Список, музыка, длительность и настройки закодированы в адресе страницы — им можно поделиться.</p>
+        <div class="card__actions">
+          <button id="copy-link" class="btn btn--primary">Скопировать ссылку</button>
+          <button id="reset-link" class="btn">Сбросить к значениям по умолчанию</button>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card__head">
+          <h2>История</h2>
+          <button id="clear-history" class="link-btn">очистить</button>
+        </div>
+        <ol id="history" class="history"></ol>
+      </div>
+    </aside>
+  </main>
+</div>
+
+<div id="modal" class="modal" hidden>
+  <div class="modal__box">
+    <p class="modal__label">Выпало</p>
+    <p class="modal__winner" id="winner-text"></p>
+    <button id="modal-close" class="btn btn--primary">Отлично</button>
+  </div>
+</div>
+
+<script src="js/app.js"></script>
+</body>
+</html>
