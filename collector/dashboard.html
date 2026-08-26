@@ -1,0 +1,228 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Метрики — Колесо фортуны</title>
+<style>
+  :root {
+    --bg: #f6f4ef;
+    --panel: #fffaf0;
+    --ink: #2d2723;
+    --muted: #8a7a68;
+    --line: #e2dbcd;
+    --red: #df3f36;
+    --yellow: #f7bd36;
+    --blue: #3d9ca8;
+    --green: #6a9f50;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 26px 20px 60px;
+    background: var(--bg); color: var(--ink);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  }
+  .wrap { max-width: 1180px; margin: 0 auto; }
+  header { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; flex-wrap: wrap; margin-bottom: 22px; }
+  h1 { margin: 0; font-size: 24px; letter-spacing: -.02em; }
+  h2 { margin: 0 0 14px; font-size: 13px; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); }
+  select {
+    padding: 7px 11px; border: 1px solid var(--line); border-radius: 9px;
+    background: var(--panel); color: var(--ink); font-size: 14px; cursor: pointer;
+  }
+
+  .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(168px, 1fr)); gap: 12px; margin-bottom: 22px; }
+  .card {
+    padding: 15px 16px; border: 1px solid var(--line); border-radius: 13px; background: var(--panel);
+  }
+  .card b { display: block; font-size: 27px; font-variant-numeric: tabular-nums; line-height: 1.15; }
+  .card span { display: block; margin-top: 3px; font-size: 12px; color: var(--muted); }
+  .card i { font-style: normal; font-size: 12px; color: var(--green); }
+
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(330px, 1fr)); gap: 16px; }
+  .panel { padding: 17px 18px; border: 1px solid var(--line); border-radius: 13px; background: var(--panel); }
+  .panel--wide { grid-column: 1 / -1; }
+
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th, td { padding: 6px 4px; text-align: left; border-bottom: 1px solid var(--line); }
+  th { color: var(--muted); font-weight: 600; font-size: 11px; text-transform: uppercase; letter-spacing: .05em; }
+  td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+  tr:last-child td { border-bottom: none; }
+
+  .bar { height: 7px; border-radius: 4px; background: var(--blue); min-width: 2px; }
+  .empty { padding: 22px 0; color: var(--muted); text-align: center; font-size: 13px; }
+  .funnel-step { display: flex; align-items: center; gap: 10px; margin-bottom: 9px; font-size: 13px; }
+  .funnel-step .label { width: 150px; flex: none; }
+  .funnel-step .track { flex: 1; height: 21px; border-radius: 5px; background: #efe9dd; overflow: hidden; }
+  .funnel-step .fill { height: 100%; background: var(--yellow); }
+  .funnel-step .val { width: 92px; flex: none; text-align: right; font-variant-numeric: tabular-nums; color: var(--muted); }
+  svg { display: block; width: 100%; height: 190px; overflow: visible; }
+  .err { padding: 16px; border-radius: 10px; background: #fde8e7; color: #a92227; font-size: 14px; }
+  footer { margin-top: 26px; color: var(--muted); font-size: 12px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>🎡 Метрики «Колеса фортуны»</h1>
+    <select id="period">
+      <option value="7">7 дней</option>
+      <option value="30" selected>30 дней</option>
+      <option value="90">90 дней</option>
+      <option value="365">год</option>
+    </select>
+  </header>
+
+  <div id="root"><p class="empty">Загружаю…</p></div>
+
+  <footer>Данные обезличены: содержимое списков не собирается, только количество и хеш.</footer>
+</div>
+
+<script>
+'use strict';
+
+const $ = (id) => document.getElementById(id);
+const num = (n) => (n == null ? '0' : Number(n).toLocaleString('ru-RU'));
+const pct = (a, b) => (!b ? '0%' : Math.round((a / b) * 100) + '%');
+const esc = (s) => String(s ?? '—').replace(/[<>&"]/g, (c) => (
+  { '<': '&lt;', '>': '&gt;', '&': '&amp;', '"': '&quot;' }[c]));
+
+const TRACK_NAMES = {
+  kalambur: 'Деревня дураков',
+  nupogodi: 'Ну, погоди!',
+  benny: 'Шоу Бенни Хилла',
+  none: 'Без музыки'
+};
+
+async function load() {
+  const days = $('period').value;
+  const root = $('root');
+  try {
+    const res = await fetch(`/api/stats?days=${days}`, { credentials: 'same-origin' });
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    render(await res.json());
+  } catch (err) {
+    root.innerHTML = `<div class="err">Не удалось загрузить данные: ${esc(err.message)}</div>`;
+  }
+}
+
+function render(d) {
+  const t = d.totals || {};
+  const spins = t.spins || 0;
+  const views = t.page_views || 0;
+
+  // Воронка: визит → покрутил → настроил под себя → поделился
+  const funnel = [
+    ['Визиты', views],
+    ['Покрутили', spins],
+    ['Меняли список', d.items_changed_visitors || 0],
+    ['Скопировали ссылку', t.links_copied || 0]
+  ];
+
+  const cards = [
+    ['Посетители', num(t.visitors), 'уникальных браузеров'],
+    ['Команды', num(t.wheels), 'уникальных списков'],
+    ['Организации', num(t.orgs), 'групп по сети'],
+    ['Розыгрыши', num(spins), 'доведено до конца'],
+    ['Поделились', num(t.links_copied), pct(t.links_copied, t.visitors) + ' от посетителей'],
+    ['Пришли по ссылке', num(t.invited_visits), pct(t.invited_visits, views) + ' визитов']
+  ];
+
+  $('root').innerHTML = `
+    <div class="cards">
+      ${cards.map(([label, value, hint]) => `
+        <div class="card"><b>${value}</b><span>${label}</span><i>${esc(hint)}</i></div>
+      `).join('')}
+    </div>
+
+    <div class="grid">
+      <div class="panel panel--wide">
+        <h2>Динамика по дням</h2>
+        ${sparkline(d.by_day || [])}
+      </div>
+
+      <div class="panel">
+        <h2>Воронка</h2>
+        ${funnel.map(([label, value]) => `
+          <div class="funnel-step">
+            <span class="label">${label}</span>
+            <span class="track"><span class="fill" style="width:${views ? Math.min(100, (value / views) * 100) : 0}%"></span></span>
+            <span class="val">${num(value)} · ${pct(value, views)}</span>
+          </div>
+        `).join('')}
+      </div>
+
+      <div class="panel">
+        <h2>Музыка при вращении</h2>
+        ${barTable(d.music || [], (v) => TRACK_NAMES[v] || v)}
+      </div>
+
+      <div class="panel">
+        <h2>Решение после розыгрыша</h2>
+        ${barTable((d.decisions || []).map((r) => ({
+          value: r.value === 'remove' ? 'Удалить победителя' : 'Оставить',
+          count: r.count
+        })))}
+      </div>
+
+      <div class="panel">
+        <h2>Страны</h2>
+        ${barTable(d.countries || [])}
+      </div>
+
+      <div class="panel panel--wide">
+        <h2>Организации с несколькими участниками</h2>
+        ${orgTable(d.top_orgs || [])}
+      </div>
+    </div>
+  `;
+}
+
+function barTable(rows, labelFn) {
+  if (!rows.length) return '<p class="empty">Пока нет данных</p>';
+  const max = Math.max(...rows.map((r) => r.count || 0), 1);
+  return `<table>${rows.map((r) => `
+    <tr>
+      <td>${esc(labelFn ? labelFn(r.value) : r.value)}</td>
+      <td style="width:45%"><div class="bar" style="width:${((r.count || 0) / max) * 100}%"></div></td>
+      <td class="num">${num(r.count)}</td>
+    </tr>`).join('')}</table>`;
+}
+
+function orgTable(rows) {
+  if (!rows.length) return '<p class="empty">Пока нет организаций, где колесом пользуется больше одного человека</p>';
+  return `<table>
+    <tr><th>Идентификатор сети</th><th class="num">Участники</th><th class="num">Розыгрыши</th></tr>
+    ${rows.map((r) => `<tr>
+      <td><code>${esc(r.value)}</code></td>
+      <td class="num">${num(r.visitors)}</td>
+      <td class="num">${num(r.spins)}</td>
+    </tr>`).join('')}
+  </table>`;
+}
+
+function sparkline(days) {
+  if (days.length < 2) return '<p class="empty">Нужно хотя бы два дня данных</p>';
+  const w = 1000, h = 170, pad = 24;
+  const max = Math.max(...days.map((d) => Math.max(d.visitors || 0, d.spins || 0)), 1);
+  const x = (i) => pad + (i * (w - pad * 2)) / (days.length - 1);
+  const y = (v) => h - pad - ((v || 0) / max) * (h - pad * 2);
+  const path = (key) => days.map((d, i) => `${i ? 'L' : 'M'}${x(i).toFixed(1)},${y(d[key]).toFixed(1)}`).join('');
+
+  return `<svg viewBox="0 0 ${w} ${h}" preserveAspectRatio="none" role="img">
+    <line x1="${pad}" y1="${h - pad}" x2="${w - pad}" y2="${h - pad}" stroke="#e2dbcd" stroke-width="2"/>
+    <path d="${path('visitors')}" fill="none" stroke="#3d9ca8" stroke-width="3" stroke-linejoin="round"/>
+    <path d="${path('spins')}" fill="none" stroke="#df3f36" stroke-width="3" stroke-linejoin="round"/>
+    <text x="${pad}" y="14" font-size="12" fill="#3d9ca8">— посетители</text>
+    <text x="${pad + 110}" y="14" font-size="12" fill="#df3f36">— розыгрыши</text>
+    <text x="${pad}" y="${h - 6}" font-size="11" fill="#8a7a68">${esc(days[0].day)}</text>
+    <text x="${w - pad}" y="${h - 6}" font-size="11" fill="#8a7a68" text-anchor="end">${esc(days[days.length - 1].day)}</text>
+    <text x="${pad - 6}" y="${y(max) + 4}" font-size="11" fill="#8a7a68" text-anchor="end">${max}</text>
+  </svg>`;
+}
+
+$('period').addEventListener('change', load);
+load();
+</script>
+</body>
+</html>

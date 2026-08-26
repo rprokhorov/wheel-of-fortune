@@ -1,0 +1,16 @@
+{
+  "name": "wheel-collector",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Сбор продуктовых метрик «Колеса фортуны»",
+  "main": "server.js",
+  "type": "commonjs",
+  "scripts": {
+    "start": "node server.js",
+    "rollup": "node rollup.js"
+  },
+  "dependencies": {
+    "better-sqlite3": "^13.0.3",
+    "geoip-lite": "^1.4.10"
+  }
+}

@@ -164,3 +164,13 @@ Workflow `.github/workflows/docker.yml` при каждом пуше в `main` �
 фолбэк, поэтому без интернета вёрстка не ломается.
 
 Анимации отключаются для тех, кто выставил в системе `prefers-reduced-motion`.
+
+## Аналитика
+
+Продуктовые метрики собираются своим коллектором на том же домене — без
+внешних сервисов, cookie и сбора содержимого списков. Подробности,
+схема событий и эксплуатация: [`collector/README.md`](collector/README.md).
+
+Дашборд: `https://wheel.rprokhorov.ru/api/dashboard` (Basic Auth).
+
+Отключить сбор для себя: `?analytics=off`, либо Do Not Track в браузере.

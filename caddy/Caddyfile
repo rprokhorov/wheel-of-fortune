@@ -4,7 +4,16 @@
 
 {$SITE_DOMAIN} {
 	encode gzip zstd
-	reverse_proxy site:80
+
+	# Аналитика: свой домен, поэтому блокировщики рекламы запросы не режут.
+	# handle идёт до общего маршрута, иначе /api ушёл бы на статику.
+	handle /api/* {
+		reverse_proxy collector:8081
+	}
+
+	handle {
+		reverse_proxy site:80
+	}
 
 	header {
 		X-Content-Type-Options nosniff

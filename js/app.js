@@ -33,6 +33,8 @@
   let rotation = 0;        // текущий поворот колеса, рад
   let spinning = false;
   let pendingWinner = null;
+  let spinsThisSession = 0;   // счётчик для аналитики
+  let spinStartedAt = 0;
 
   // ---------- DOM ----------
   const $ = (id) => document.getElementById(id);
@@ -74,6 +76,11 @@
   }
 
   const clamp   = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
+
+  // Аналитика опциональна: если analytics.js не загрузился или сбор
+  // отключён, вызовы превращаются в пустышки.
+  const track = (name, props) => { if (window.wofTrack) window.wofTrack(name, props); };
+  const setTrackContext = (patch) => { if (window.wofSetContext) window.wofSetContext(patch); };
   const colorOf = (i) => WHEEL_COLORS[i % WHEEL_COLORS.length];
   const iconOf  = (i) => WHEEL_ICONS[i % WHEEL_ICONS.length];
 
@@ -281,7 +288,11 @@
     audioEl.volume = vol;
     audioEl.play()
       .then(() => equalizer.classList.add('is-playing'))
-      .catch(() => { /* автоплей заблокирован до жеста */ });
+      .catch(() => {
+        // Браузер не дал запустить музыку без жеста — важный сигнал:
+        // ключевая фишка продукта у этого пользователя не сработала.
+        track('audio_blocked', { track: settings.music });
+      });
   }
 
   function stopMusic() {
@@ -317,6 +328,16 @@
     const duration = settings.duration * 1000;
     const startTs  = performance.now();
     let lastIndex  = -1;
+
+    spinStartedAt = startTs;
+    spinsThisSession += 1;
+    track('spin_start', {
+      duration_s: settings.duration,
+      music: settings.music,
+      volume: settings.volume,
+      sound_on: settings.sound,
+      spin_index: spinsThisSession
+    });
 
     startMusic();
 
@@ -359,6 +380,11 @@
     resultText.textContent = winner;
     resultBox.classList.add('is-winning');
 
+    track('spin_complete', {
+      spin_index: spinsThisSession,
+      actual_ms: Math.round(performance.now() - spinStartedAt)
+    });
+
     history.unshift({ name: winner, at: Date.now() });
     save();
     renderHistory();
@@ -381,6 +407,11 @@
   }
 
   dialog.addEventListener('close', () => {
+    track('decision', {
+      choice: dialog.returnValue === 'remove' ? 'remove' : 'keep',
+      items_left: dialog.returnValue === 'remove' ? items.length - 1 : items.length
+    });
+
     if (dialog.returnValue === 'remove' && pendingWinner && items.length > 1) {
       const removed = pendingWinner;
       const idx = items.indexOf(removed);
@@ -536,6 +567,7 @@
   });
   durInput.addEventListener('change', () => {
     save();
+    track('duration_changed', { to: settings.duration });
     showToast(`Колесо будет крутиться ${settings.duration} сек`);
   });
 
@@ -547,6 +579,7 @@
   volInput.addEventListener('change', save);
 
   musicSel.addEventListener('change', () => {
+    track('music_changed', { from: settings.music, to: musicSel.value });
     settings.music = musicSel.value;
     save();
     renderControls();
@@ -560,11 +593,14 @@
   });
 
   // ---------- Список ----------
-  function setItems(list) {
+  function setItems(list, source) {
+    const before = items.length;
     items = list;
     rotation = 0;
     save();
     renderAll();
+    setTrackContext({ items_count: items.length, items });
+    track('items_changed', { before, after: items.length, source: source || 'apply' });
   }
 
   function parseItems(value) {
@@ -589,7 +625,7 @@
       itemsInput.value = items.join('\n');
       return;
     }
-    setItems(list);
+    setItems(list, 'apply');
     showToast(`Вариантов: ${list.length}`);
   });
 
@@ -598,7 +634,7 @@
       const j = Math.floor(Math.random() * (i + 1));
       [items[i], items[j]] = [items[j], items[i]];
     }
-    setItems(items);
+    setItems(items, 'shuffle');
     showToast('Перемешано');
   });
 
@@ -607,6 +643,7 @@
     try {
       await navigator.clipboard.writeText(url);
       showToast('Ссылка скопирована');
+      track('link_copied', { items_count: items.length, music: settings.music });
     } catch (_) {
       prompt('Скопируйте ссылку:', url);
     }
@@ -640,7 +677,7 @@
         if (!Array.isArray(list)) throw new Error('bad format');
         const parsed = parseItems(list.map(String).join('\n'));
         if (!parsed.length) throw new Error('empty');
-        setItems(parsed);
+        setItems(parsed, 'import');
         showToast(`Импортировано: ${parsed.length}`);
       } catch (_) {
         showToast('Не удалось прочитать файл');
@@ -665,12 +702,33 @@
   window.addEventListener('resize', resizeConfetti);
   window.addEventListener('beforeunload', stopMusic);
 
+  window.addEventListener('pagehide', () => {
+    if (!spinning) return;
+    const elapsed = performance.now() - spinStartedAt;
+    track('spin_abandon', {
+      progress_pct: clamp(Math.round((elapsed / (settings.duration * 1000)) * 100), 0, 100),
+      spin_index: spinsThisSession
+    });
+  });
+
   // ---------- Старт ----------
+  const arrivedWithParams = new URLSearchParams(location.search).has('items');
+
   readUrl();          // URL важнее сохранённого состояния
   resizeConfetti();
   renderControls();
   renderAll();
   syncUrl();
+
+  setTrackContext({
+    items_count: items.length,
+    items,
+    is_invited: arrivedWithParams ? 1 : 0
+  });
+  track('page_view', {
+    has_params: arrivedWithParams ? 1 : 0,
+    load_ms: Math.round(performance.now())
+  });
 
   // Шрифты приходят с Google Fonts — перерисовать колесо, когда загрузятся
   if (document.fonts && document.fonts.ready) {

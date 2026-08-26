@@ -675,6 +675,17 @@ footer {
 }
 footer i { color: var(--red); font-style: normal; }
 
+footer { flex-wrap: wrap; justify-content: center; text-align: center; }
+.footer-note {
+  flex-basis: 100%;
+  margin-top: 6px;
+  color: #7a6449;
+  font-family: var(--font-body);
+  font-size: 11px;
+  opacity: .8;
+}
+.footer-note a { color: inherit; }
+
 /* --- Тост --- */
 .toast {
   position: fixed;

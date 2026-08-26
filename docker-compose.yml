@@ -9,11 +9,48 @@ services:
       - "80"
     networks: [wheel]
 
+  collector:
+    image: ghcr.io/rprokhorov/wheel-collector:${TAG:-latest}
+    build: ./collector
+    container_name: wheel-collector
+    restart: unless-stopped
+    expose:
+      - "8081"
+    environment:
+      # Постоянная соль для org_id. Менять нельзя: после смены
+      # старые и новые события перестанут группироваться вместе.
+      ORG_SALT: ${ORG_SALT:?укажите ORG_SALT в .env}
+      DASH_USER: ${DASH_USER:-admin}
+      DASH_PASS: ${DASH_PASS:?укажите DASH_PASS в .env}
+      # 0 — хранить IP бессрочно, чистка запускается вручную
+      IP_RETENTION_DAYS: ${IP_RETENTION_DAYS:-0}
+      DB_PATH: /data/analytics.db
+    volumes:
+      - analytics_data:/data
+    networks: [wheel]
+
+  # Ночной пересчёт агрегатов. Отдельный контейнер вместо cron внутри
+  # коллектора: так джоб не мешает приёму событий и его видно в логах.
+  rollup:
+    image: ghcr.io/rprokhorov/wheel-collector:${TAG:-latest}
+    build: ./collector
+    container_name: wheel-rollup
+    restart: unless-stopped
+    depends_on: [collector]
+    environment:
+      DB_PATH: /data/analytics.db
+      IP_RETENTION_DAYS: ${IP_RETENTION_DAYS:-0}
+    volumes:
+      - analytics_data:/data
+    networks: [wheel]
+    # Считаем в 03:20 UTC — сутки уже закрыты, нагрузки нет
+    entrypoint: ["sh", "-c", "while true; do sleep $$(( ( (3*3600+20*60) - $$(date -u +%s) % 86400 + 86400 ) % 86400 )); node rollup.js; done"]
+
   caddy:
     image: caddy:2-alpine
     container_name: wheel-caddy
     restart: unless-stopped
-    depends_on: [site]
+    depends_on: [site, collector]
     ports:
       - "80:80"
       - "443:443"
@@ -33,3 +70,4 @@ networks:
 volumes:
   caddy_data:
   caddy_config:
+  analytics_data:
