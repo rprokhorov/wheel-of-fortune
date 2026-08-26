@@ -93,6 +93,14 @@
   .step__det { color: var(--muted); }
   .meta-line { margin: 0 0 10px; padding-left: 106px; color: var(--muted); font-size: 12px; }
   .filter { margin-bottom: 14px; display: flex; gap: 8px; align-items: center; }
+  .items-list {
+    display: flex; gap: 5px; flex-wrap: wrap; margin: 6px 0 2px;
+  }
+  .items-list span {
+    padding: 2px 9px; border-radius: 6px; background: #fff1bd;
+    border: 1px solid #e8d9a8; font-size: 12px;
+  }
+  code.ip { font-size: 12px; color: #6f5f4c; }
   .filter input {
     flex: 1; max-width: 380px; padding: 7px 11px; border: 1px solid var(--line);
     border-radius: 9px; background: var(--panel); font-size: 13px; font-family: inherit;
@@ -214,6 +222,11 @@ function render(d) {
       </div>
 
       <div class="panel panel--wide">
+        <h2>Какие списки крутят</h2>
+        ${topItems(d.top_items || [])}
+      </div>
+
+      <div class="panel panel--wide">
         <h2>Организации с несколькими участниками</h2>
         ${orgTable(d.top_orgs || [])}
       </div>
@@ -232,11 +245,27 @@ function barTable(rows, labelFn) {
     </tr>`).join('')}</table>`;
 }
 
+function topItems(rows) {
+  if (!rows.length) return '<p class="empty">Пока нет данных</p>';
+  return `<table>
+    <tr><th>Список</th><th class="num">Сессий</th></tr>
+    ${rows.map((r) => {
+      let items = [];
+      try { items = JSON.parse(r.value) || []; } catch (_) { items = []; }
+      return `<tr>
+        <td><div class="items-list">${items.map((x) => `<span>${esc(x)}</span>`).join('')}</div></td>
+        <td class="num">${num(r.sessions)}</td>
+      </tr>`;
+    }).join('')}
+  </table>`;
+}
+
 function orgTable(rows) {
   if (!rows.length) return '<p class="empty">Пока нет организаций, где колесом пользуется больше одного человека</p>';
   return `<table>
-    <tr><th>Идентификатор сети</th><th class="num">Участники</th><th class="num">Розыгрыши</th></tr>
+    <tr><th>IP</th><th>Идентификатор сети</th><th class="num">Участники</th><th class="num">Розыгрыши</th></tr>
     ${rows.map((r) => `<tr>
+      <td><code class="ip">${esc(r.ip)}</code> ${esc(r.country || '')}</td>
       <td><code>${esc(r.value)}</code></td>
       <td class="num">${num(r.visitors)}</td>
       <td class="num">${num(r.spins)}</td>
@@ -380,9 +409,16 @@ function sessionRow(s) {
     <div class="sess__head" data-sid="${esc(s.session_id)}">
       <span class="sess__when">${hhmm(s.started_at)}</span>
       <span class="sess__tags">${tags.join('')}</span>
-      <span class="step__det">${esc(s.country || '—')} · ${esc(s.browser || '—')} · ${s.is_mobile ? 'моб.' : 'десктоп'}</span>
+      <span class="step__det">
+        <code class="ip">${esc(s.ip || '—')}</code> ·
+        ${esc(s.country || '—')} · ${esc(s.browser || '—')} · ${s.is_mobile ? 'моб.' : 'десктоп'}
+      </span>
       <span><span class="dots">${'●'.repeat(Math.min(s.spins || 0, 8))}</span> ${s.duration_s}с</span>
     </div>
+    ${s.items_text && s.items_text.length ? `
+      <div class="items-list" style="padding:0 4px 8px 100px">
+        ${s.items_text.map((x) => `<span>${esc(x)}</span>`).join('')}
+      </div>` : ''}
     <div class="sess__body" id="body-${esc(s.session_id)}" hidden></div>
   </div>`;
 }
@@ -401,6 +437,7 @@ async function toggleSession(sid) {
     const m = d.meta || {};
     box.innerHTML = `
       <p class="meta-line" style="padding-left:0">
+        IP <code class="ip">${esc(m.ip)}</code> ·
         visitor <code>${esc(m.visitor_id)}</code> ·
         сеть <code>${esc(m.org_id)}</code> ·
         ${esc(m.city || m.country || '—')} · ${esc(m.os || '')} ${esc(m.browser || '')} ·
@@ -411,8 +448,14 @@ async function toggleSession(sid) {
         <div class="step">
           <span class="step__t">${new Date(e.ts).toLocaleTimeString('ru-RU')}</span>
           <span class="step__gap">${e.gap_s ? '+' + e.gap_s + 'с' : ''}</span>
-          <span><span class="step__name">${esc(EVENT_LABELS[e.name] || e.name)}</span>
-            <span class="step__det">${esc(stepDetail(e))}</span></span>
+          <span>
+            <span class="step__name">${esc(EVENT_LABELS[e.name] || e.name)}</span>
+            <span class="step__det">${esc(stepDetail(e))}</span>
+            ${e.name === 'items_changed' && e.items_text ? `
+              <div class="items-list">
+                ${e.items_text.map((x) => `<span>${esc(x)}</span>`).join('')}
+              </div>` : ''}
+          </span>
         </div>`).join('')}`;
   } catch (err) {
     box.innerHTML = `<div class="err">${esc(err.message)}</div>`;

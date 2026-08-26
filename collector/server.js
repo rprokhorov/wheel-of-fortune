@@ -30,7 +30,10 @@ db.exec(fs.readFileSync(path.join(__dirname, 'schema.sql'), 'utf8'));
 
 // Миграции для баз, созданных прежними версиями схемы:
 // CREATE TABLE IF NOT EXISTS не добавляет колонки в существующую таблицу.
-for (const [table, column, type] of [['events', 'item_profile', 'TEXT']]) {
+for (const [table, column, type] of [
+  ['events', 'item_profile', 'TEXT'],
+  ['events', 'items_text', 'TEXT']
+]) {
   const has = db.prepare(`PRAGMA table_info(${table})`).all().some((c) => c.name === column);
   if (!has) {
     db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${type}`);
@@ -43,12 +46,12 @@ const insert = db.prepare(`
     ts, day, name, visitor_id, session_id, wheel_id, org_id,
     ip, country, city, asn_org,
     is_invited, items_count, app_version, screen, lang, tz, referrer_host,
-    ua_browser, ua_os, is_mobile, item_profile, props
+    ua_browser, ua_os, is_mobile, item_profile, items_text, props
   ) VALUES (
     @ts, @day, @name, @visitor_id, @session_id, @wheel_id, @org_id,
     @ip, @country, @city, @asn_org,
     @is_invited, @items_count, @app_version, @screen, @lang, @tz, @referrer_host,
-    @ua_browser, @ua_os, @is_mobile, @item_profile, @props
+    @ua_browser, @ua_os, @is_mobile, @item_profile, @items_text, @props
   )
 `);
 
@@ -186,8 +189,20 @@ function normalize(ev, ctx) {
     is_mobile:  ctx.ua.mobile,
 
     item_profile: normalizeProfile(ev.item_profile),
+    items_text: normalizeItems(ev.items_text),
     props: Object.keys(props).length ? JSON.stringify(props) : null
   };
+}
+
+// Варианты из колеса. Ограничиваем число и длину, чтобы событие
+// не раздулось: 30 — предел списка в самом продукте.
+function normalizeItems(raw) {
+  if (!Array.isArray(raw) || !raw.length) return null;
+  const out = raw
+    .slice(0, 30)
+    .map((s) => String(s).trim().slice(0, 60))
+    .filter(Boolean);
+  return out.length ? JSON.stringify(out) : null;
 }
 
 // Профиль списка: пропускаем только известные числовые признаки.
@@ -381,8 +396,16 @@ function buildStats(params) {
       FROM events
       WHERE name = 'page_view' AND item_profile IS NOT NULL AND day >= ?
     `, since),
+    top_items: q(`
+      SELECT items_text AS value, COUNT(DISTINCT session_id) AS sessions
+      FROM events
+      WHERE items_text IS NOT NULL AND day >= ?
+      GROUP BY items_text ORDER BY sessions DESC LIMIT 25
+    `, since),
     top_orgs: q(`
       SELECT org_id AS value,
+             MAX(ip) AS ip,
+             MAX(country) AS country,
              COUNT(DISTINCT visitor_id) AS visitors,
              SUM(name = 'spin_complete') AS spins
       FROM events WHERE day >= ? AND org_id IS NOT NULL
@@ -400,7 +423,7 @@ function buildSessions(params) {
   // Хронология одной сессии — всё, что человек делал, по порядку
   if (sid) {
     const rows = db.prepare(`
-      SELECT ts, name, items_count, item_profile, props
+      SELECT ts, name, items_count, item_profile, items_text, props
       FROM events WHERE session_id = ? ORDER BY id
     `).all(sid);
 
@@ -424,6 +447,7 @@ function buildSessions(params) {
           name: r.name,
           items_count: r.items_count,
           item_profile: r.item_profile ? JSON.parse(r.item_profile) : null,
+          items_text: r.items_text ? JSON.parse(r.items_text) : null,
           props: r.props ? JSON.parse(r.props) : null
         };
       })
@@ -450,6 +474,12 @@ function buildSessions(params) {
       MAX(is_invited) AS is_invited,
       MAX(items_count) AS items_count,
       MAX(item_profile) AS item_profile,
+      -- последний список за сессию, а не лексикографический максимум:
+      -- показываем то, с чем человек в итоге остался
+      (SELECT items_text FROM events e2
+        WHERE e2.session_id = events.session_id AND e2.items_text IS NOT NULL
+        ORDER BY e2.id DESC LIMIT 1) AS items_text,
+      MAX(ip)           AS ip,
       SUM(name = 'spin_complete') AS spins,
       SUM(name = 'spin_abandon')  AS abandons,
       SUM(name = 'items_changed') AS edits,
@@ -468,7 +498,8 @@ function buildSessions(params) {
     sessions: sessions.map((s) => Object.assign(s, {
       duration_s: Math.round(
         (new Date(s.ended_at).getTime() - new Date(s.started_at).getTime()) / 1000),
-      item_profile: s.item_profile ? JSON.parse(s.item_profile) : null
+      item_profile: s.item_profile ? JSON.parse(s.item_profile) : null,
+      items_text: s.items_text ? JSON.parse(s.items_text) : null
     }))
   };
 }

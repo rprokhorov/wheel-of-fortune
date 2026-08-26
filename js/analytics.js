@@ -143,6 +143,7 @@
         lang: navigator.language || null,
         tz: Intl.DateTimeFormat().resolvedOptions().timeZone || null,
         item_profile: context.item_profile || null,
+        items_text: context.items_text || null,
         props: props || {}
       });
 
@@ -161,6 +162,12 @@
     if (patch && patch.items) {
       computeWheelId(patch.items);
       context.item_profile = profileItems(patch.items);
+      // Сами варианты: нужны для разбора пользовательского опыта
+      // на внутреннем тестировании. Ограничиваем длину, чтобы
+      // случайная вставка полотна текста не раздула события.
+      context.items_text = patch.items
+        .slice(0, 30)
+        .map((s) => String(s).trim().slice(0, 60));
     }
   };
 
