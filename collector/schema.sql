@@ -35,6 +35,10 @@ CREATE TABLE IF NOT EXISTS events (
   ua_os        TEXT,
   is_mobile    INTEGER,
 
+  -- Признаки списка вместо самих строк: длина, язык, похоже ли на имена.
+  -- Сами варианты не собираются — только их профиль. JSON.
+  item_profile TEXT,
+
   -- Поля конкретных событий (см. README коллектора)
   props        TEXT                       -- JSON
 );

@@ -68,6 +68,39 @@
     }
   }
 
+  // Признаки списка вместо самих строк: по ним видно, для чего
+  // используют колесо (имена, задачи, обеды), но ни одно настоящее
+  // имя на сервер не уезжает.
+  function profileItems(items) {
+    if (!items || !items.length) return null;
+    const lens = items.map((s) => String(s).trim().length);
+    const sum = lens.reduce((a, b) => a + b, 0);
+
+    let cyr = 0, latin = 0, emoji = 0, oneWord = 0, capitalized = 0;
+    for (const raw of items) {
+      const s = String(raw).trim();
+      if (/[а-яё]/i.test(s)) cyr++;
+      if (/[a-z]/i.test(s)) latin++;
+      if (/[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}]/u.test(s)) emoji++;
+      if (!/\s/.test(s)) oneWord++;
+      if (/^[A-ZА-ЯЁ]/.test(s)) capitalized++;
+    }
+
+    const n = items.length;
+    return {
+      n,
+      len_avg: Math.round(sum / n),
+      len_min: Math.min(...lens),
+      len_max: Math.max(...lens),
+      // Короткие слова с заглавной буквы — почти наверняка имена людей
+      looks_like_names: (oneWord / n > 0.8 && capitalized / n > 0.8 && sum / n < 14) ? 1 : 0,
+      pct_cyrillic: Math.round((cyr / n) * 100),
+      pct_latin: Math.round((latin / n) * 100),
+      pct_emoji: Math.round((emoji / n) * 100),
+      pct_one_word: Math.round((oneWord / n) * 100)
+    };
+  }
+
   // ---------- Очередь ----------
   const queue = [];
   let flushTimer = null;
@@ -109,6 +142,7 @@
         screen: `${window.innerWidth}x${window.innerHeight}`,
         lang: navigator.language || null,
         tz: Intl.DateTimeFormat().resolvedOptions().timeZone || null,
+        item_profile: context.item_profile || null,
         props: props || {}
       });
 
@@ -124,7 +158,10 @@
 
   window.wofSetContext = (patch) => {
     context = Object.assign(context, patch || {});
-    if (patch && patch.items) computeWheelId(patch.items);
+    if (patch && patch.items) {
+      computeWheelId(patch.items);
+      context.item_profile = profileItems(patch.items);
+    }
   };
 
   // Досылаем хвост очереди, когда вкладку скрывают или закрывают

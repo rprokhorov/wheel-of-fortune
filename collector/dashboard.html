@@ -59,6 +59,44 @@
   svg { display: block; width: 100%; height: 190px; overflow: visible; }
   .err { padding: 16px; border-radius: 10px; background: #fde8e7; color: #a92227; font-size: 14px; }
   footer { margin-top: 26px; color: var(--muted); font-size: 12px; }
+
+  .tabs { display: flex; gap: 8px; margin-bottom: 18px; }
+  .tabs button {
+    padding: 8px 15px; border: 1px solid var(--line); border-radius: 9px;
+    background: var(--panel); color: var(--muted); cursor: pointer;
+    font-size: 14px; font-weight: 600;
+  }
+  .tabs button.on { background: var(--ink); border-color: var(--ink); color: #fffaf0; }
+
+  .sess { border-bottom: 1px solid var(--line); }
+  .sess:last-child { border-bottom: none; }
+  .sess__head {
+    display: grid; grid-template-columns: 96px 1fr 128px 82px;
+    gap: 10px; align-items: center; padding: 9px 4px; cursor: pointer; font-size: 13px;
+  }
+  .sess__head:hover { background: #f3efe6; }
+  .sess__when { color: var(--muted); font-variant-numeric: tabular-nums; }
+  .sess__tags { display: flex; gap: 5px; flex-wrap: wrap; }
+  .tag {
+    padding: 1px 7px; border-radius: 20px; background: #efe9dd;
+    font-size: 11px; color: #6f5f4c; white-space: nowrap;
+  }
+  .tag--share { background: #dcefdc; color: #3d6b33; }
+  .tag--err { background: #fde8e7; color: #a92227; }
+  .tag--invited { background: #dbeef1; color: #2b6b76; }
+  .dots { letter-spacing: 2px; color: var(--red); }
+  .sess__body { padding: 4px 4px 16px 106px; }
+  .step { display: grid; grid-template-columns: 66px 56px 1fr; gap: 10px; padding: 4px 0; font-size: 13px; }
+  .step__t { color: var(--muted); font-variant-numeric: tabular-nums; }
+  .step__gap { color: #b3a48d; font-variant-numeric: tabular-nums; }
+  .step__name { font-weight: 600; }
+  .step__det { color: var(--muted); }
+  .meta-line { margin: 0 0 10px; padding-left: 106px; color: var(--muted); font-size: 12px; }
+  .filter { margin-bottom: 14px; display: flex; gap: 8px; align-items: center; }
+  .filter input {
+    flex: 1; max-width: 380px; padding: 7px 11px; border: 1px solid var(--line);
+    border-radius: 9px; background: var(--panel); font-size: 13px; font-family: inherit;
+  }
 </style>
 </head>
 <body>
@@ -72,6 +110,11 @@
       <option value="365">год</option>
     </select>
   </header>
+
+  <div class="tabs">
+    <button id="tab-metrics" class="on">Метрики</button>
+    <button id="tab-sessions">Сессии</button>
+  </div>
 
   <div id="root"><p class="empty">Загружаю…</p></div>
 
@@ -221,7 +264,175 @@ function sparkline(days) {
   </svg>`;
 }
 
-$('period').addEventListener('change', load);
+// ---------- Сессии ----------
+
+const EVENT_LABELS = {
+  page_view: 'зашёл на сайт',
+  spin_start: 'запустил вращение',
+  spin_complete: 'розыгрыш завершён',
+  spin_abandon: 'ушёл во время вращения',
+  decision: 'решение',
+  items_changed: 'правил список',
+  link_copied: 'скопировал ссылку',
+  music_changed: 'сменил музыку',
+  duration_changed: 'сменил длительность',
+  audio_blocked: 'музыка не запустилась',
+  error: 'ошибка'
+};
+
+const SOURCE_LABELS = {
+  apply: 'вручную', import: 'импорт', shuffle: 'перемешал', remove: 'удалил победителя'
+};
+
+function stepDetail(e) {
+  const p = e.props || {};
+  switch (e.name) {
+    case 'page_view':
+      return (p.has_params ? 'по ссылке с параметрами' : 'напрямую') +
+             (e.items_count ? `, ${e.items_count} вариантов` : '');
+    case 'spin_start':
+      return `${p.duration_s} с, ${TRACK_NAMES[p.music] || p.music}` +
+             (p.sound_on ? '' : ', звук выключен');
+    case 'spin_complete':
+      return `${Math.round((p.actual_ms || 0) / 1000)} с`;
+    case 'spin_abandon':
+      return `дошёл до ${p.progress_pct}%`;
+    case 'decision':
+      return (p.choice === 'remove' ? 'удалить победителя' : 'оставить') +
+             `, осталось ${p.items_left}`;
+    case 'items_changed':
+      return `${p.before} → ${p.after} (${SOURCE_LABELS[p.source] || p.source})`;
+    case 'music_changed':
+      return `${TRACK_NAMES[p.from] || p.from} → ${TRACK_NAMES[p.to] || p.to}`;
+    case 'duration_changed':
+      return `${p.to} с`;
+    case 'audio_blocked':
+      return TRACK_NAMES[p.track] || p.track || '';
+    case 'error':
+      return p.message || '';
+    default:
+      return '';
+  }
+}
+
+function profileHint(pr) {
+  if (!pr) return '';
+  const bits = [];
+  if (pr.looks_like_names) bits.push('похоже на имена');
+  else if (pr.len_avg > 20) bits.push('длинные формулировки');
+  if (pr.pct_emoji > 30) bits.push('с эмодзи');
+  if (pr.pct_cyrillic > 60) bits.push('кириллица');
+  else if (pr.pct_latin > 60) bits.push('латиница');
+  bits.push(`≈${pr.len_avg} симв.`);
+  return bits.join(' · ');
+}
+
+const hhmm = (ts) => new Date(ts).toLocaleString('ru-RU',
+  { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+
+async function loadSessions(visitor) {
+  const root = $('root');
+  root.innerHTML = '<p class="empty">Загружаю…</p>';
+  try {
+    const qs = visitor ? `?visitor=${encodeURIComponent(visitor)}` : '';
+    const res = await fetch(`/api/sessions${qs}`, { credentials: 'same-origin' });
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    renderSessions(await res.json(), visitor);
+  } catch (err) {
+    root.innerHTML = `<div class="err">Не удалось загрузить: ${esc(err.message)}</div>`;
+  }
+}
+
+function renderSessions(d, visitor) {
+  const rows = d.sessions || [];
+  $('root').innerHTML = `
+    <div class="filter">
+      <input id="visitor-filter" placeholder="Фильтр по visitor_id — все визиты одного человека"
+             value="${esc(visitor || '')}">
+      <button class="tag" id="visitor-apply" style="cursor:pointer;padding:7px 13px">Показать</button>
+      ${visitor ? '<button class="tag" id="visitor-clear" style="cursor:pointer;padding:7px 13px">Сбросить</button>' : ''}
+    </div>
+    <div class="panel">
+      ${rows.length ? rows.map(sessionRow).join('') : '<p class="empty">Пока нет сессий</p>'}
+    </div>`;
+
+  $('visitor-apply').onclick = () => loadSessions($('visitor-filter').value.trim() || null);
+  $('visitor-filter').onkeydown = (e) => { if (e.key === 'Enter') $('visitor-apply').click(); };
+  if ($('visitor-clear')) $('visitor-clear').onclick = () => loadSessions(null);
+
+  document.querySelectorAll('.sess__head').forEach((el) => {
+    el.onclick = () => toggleSession(el.dataset.sid);
+  });
+}
+
+function sessionRow(s) {
+  const tags = [];
+  if (s.is_invited) tags.push('<span class="tag tag--invited">по ссылке</span>');
+  if (s.edits) tags.push(`<span class="tag">правок: ${s.edits}</span>`);
+  if (s.shares) tags.push('<span class="tag tag--share">поделился</span>');
+  if (s.abandons) tags.push(`<span class="tag">ушёл: ${s.abandons}</span>`);
+  if (s.audio_blocked) tags.push('<span class="tag tag--err">музыка не пошла</span>');
+  if (s.errors) tags.push(`<span class="tag tag--err">ошибок: ${s.errors}</span>`);
+  const pr = profileHint(s.item_profile);
+  if (pr) tags.push(`<span class="tag">${esc(pr)}</span>`);
+
+  return `<div class="sess">
+    <div class="sess__head" data-sid="${esc(s.session_id)}">
+      <span class="sess__when">${hhmm(s.started_at)}</span>
+      <span class="sess__tags">${tags.join('')}</span>
+      <span class="step__det">${esc(s.country || '—')} · ${esc(s.browser || '—')} · ${s.is_mobile ? 'моб.' : 'десктоп'}</span>
+      <span><span class="dots">${'●'.repeat(Math.min(s.spins || 0, 8))}</span> ${s.duration_s}с</span>
+    </div>
+    <div class="sess__body" id="body-${esc(s.session_id)}" hidden></div>
+  </div>`;
+}
+
+async function toggleSession(sid) {
+  const box = $('body-' + sid);
+  if (!box) return;
+  if (!box.hidden) { box.hidden = true; return; }
+  box.hidden = false;
+  box.innerHTML = '<p class="empty">Загружаю…</p>';
+
+  try {
+    const res = await fetch(`/api/sessions?session=${encodeURIComponent(sid)}`,
+      { credentials: 'same-origin' });
+    const d = await res.json();
+    const m = d.meta || {};
+    box.innerHTML = `
+      <p class="meta-line" style="padding-left:0">
+        visitor <code>${esc(m.visitor_id)}</code> ·
+        сеть <code>${esc(m.org_id)}</code> ·
+        ${esc(m.city || m.country || '—')} · ${esc(m.os || '')} ${esc(m.browser || '')} ·
+        ${esc(m.screen || '')} · ${esc(m.tz || '')}
+        ${m.referrer_host ? ' · из ' + esc(m.referrer_host) : ''}
+      </p>
+      ${(d.events || []).map((e) => `
+        <div class="step">
+          <span class="step__t">${new Date(e.ts).toLocaleTimeString('ru-RU')}</span>
+          <span class="step__gap">${e.gap_s ? '+' + e.gap_s + 'с' : ''}</span>
+          <span><span class="step__name">${esc(EVENT_LABELS[e.name] || e.name)}</span>
+            <span class="step__det">${esc(stepDetail(e))}</span></span>
+        </div>`).join('')}`;
+  } catch (err) {
+    box.innerHTML = `<div class="err">${esc(err.message)}</div>`;
+  }
+}
+
+// ---------- Вкладки ----------
+let tab = 'metrics';
+
+function switchTab(next) {
+  tab = next;
+  $('tab-metrics').classList.toggle('on', tab === 'metrics');
+  $('tab-sessions').classList.toggle('on', tab === 'sessions');
+  $('period').style.display = tab === 'metrics' ? '' : 'none';
+  if (tab === 'metrics') load(); else loadSessions(null);
+}
+
+$('tab-metrics').onclick = () => switchTab('metrics');
+$('tab-sessions').onclick = () => switchTab('sessions');
+$('period').addEventListener('change', () => { if (tab === 'metrics') load(); });
 load();
 </script>
 </body>

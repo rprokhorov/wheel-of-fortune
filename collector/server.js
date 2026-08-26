@@ -28,17 +28,27 @@ fs.mkdirSync(path.dirname(DB_PATH), { recursive: true });
 const db = new Database(DB_PATH);
 db.exec(fs.readFileSync(path.join(__dirname, 'schema.sql'), 'utf8'));
 
+// Миграции для баз, созданных прежними версиями схемы:
+// CREATE TABLE IF NOT EXISTS не добавляет колонки в существующую таблицу.
+for (const [table, column, type] of [['events', 'item_profile', 'TEXT']]) {
+  const has = db.prepare(`PRAGMA table_info(${table})`).all().some((c) => c.name === column);
+  if (!has) {
+    db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${type}`);
+    console.log(`миграция: ${table}.${column} добавлена`);
+  }
+}
+
 const insert = db.prepare(`
   INSERT INTO events (
     ts, day, name, visitor_id, session_id, wheel_id, org_id,
     ip, country, city, asn_org,
     is_invited, items_count, app_version, screen, lang, tz, referrer_host,
-    ua_browser, ua_os, is_mobile, props
+    ua_browser, ua_os, is_mobile, item_profile, props
   ) VALUES (
     @ts, @day, @name, @visitor_id, @session_id, @wheel_id, @org_id,
     @ip, @country, @city, @asn_org,
     @is_invited, @items_count, @app_version, @screen, @lang, @tz, @referrer_host,
-    @ua_browser, @ua_os, @is_mobile, @props
+    @ua_browser, @ua_os, @is_mobile, @item_profile, @props
   )
 `);
 
@@ -63,6 +73,11 @@ const PROP_KEYS = new Set([
   'before', 'after', 'source', 'from', 'to', 'track', 'message', 'source_line'
 ]);
 
+const PROFILE_KEYS = new Set([
+  'n', 'len_avg', 'len_min', 'len_max', 'looks_like_names',
+  'pct_cyrillic', 'pct_latin', 'pct_emoji', 'pct_one_word'
+]);
+
 const MAX_BATCH = 50;
 const MAX_BODY  = 64 * 1024;
 
@@ -71,6 +86,9 @@ const clampStr = (v, max = 120) =>
   typeof v === 'string' && v ? v.slice(0, max) : null;
 
 const clampInt = (v, lo, hi) => {
+  // null и '' Number() превращает в 0, поэтому отсеиваем их явно:
+  // иначе отсутствующий параметр зажимался бы в нижнюю границу.
+  if (v === null || v === undefined || v === '') return null;
   const n = Number(v);
   if (!Number.isFinite(n)) return null;
   return Math.min(hi, Math.max(lo, Math.round(n)));
@@ -167,8 +185,23 @@ function normalize(ev, ctx) {
     ua_os:      ctx.ua.os,
     is_mobile:  ctx.ua.mobile,
 
+    item_profile: normalizeProfile(ev.item_profile),
     props: Object.keys(props).length ? JSON.stringify(props) : null
   };
+}
+
+// Профиль списка: пропускаем только известные числовые признаки.
+// Строки сюда попасть не должны — если попали, значит клиент шлёт
+// не то, что мы просили, и это отбрасывается.
+function normalizeProfile(raw) {
+  if (!raw || typeof raw !== 'object') return null;
+  const out = {};
+  for (const [k, v] of Object.entries(raw)) {
+    if (!PROFILE_KEYS.has(k)) continue;
+    const n = Number(v);
+    if (Number.isFinite(n)) out[k] = Math.round(n);
+  }
+  return Object.keys(out).length ? JSON.stringify(out) : null;
 }
 
 // ---------- Простой rate-limit в памяти ----------
@@ -254,6 +287,16 @@ const server = http.createServer((req, res) => {
     return res.end(DASHBOARD_HTML);
   }
 
+  // Журнал сессий: список визитов и покадровая хронология одного из них
+  if (url.pathname === '/api/sessions') {
+    if (!checkAuth(req)) {
+      res.writeHead(401, { 'WWW-Authenticate': 'Basic realm="stats"' });
+      return res.end();
+    }
+    res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
+    return res.end(JSON.stringify(buildSessions(url.searchParams), null, 2));
+  }
+
   if (url.pathname === '/api/stats') {
     if (!checkAuth(req)) {
       res.writeHead(401, { 'WWW-Authenticate': 'Basic realm="stats"' });
@@ -328,6 +371,16 @@ function buildStats(params) {
       FROM events WHERE day >= ? AND country IS NOT NULL
       GROUP BY country ORDER BY count DESC LIMIT 30
     `, since),
+    item_profiles: q(`
+      SELECT
+        SUM(json_extract(item_profile, '$.looks_like_names') = 1) AS looks_like_names,
+        COUNT(*) AS total,
+        ROUND(AVG(json_extract(item_profile, '$.len_avg')), 1)     AS avg_len,
+        ROUND(AVG(json_extract(item_profile, '$.pct_cyrillic')), 0) AS pct_cyrillic,
+        ROUND(AVG(json_extract(item_profile, '$.pct_emoji')), 0)    AS pct_emoji
+      FROM events
+      WHERE name = 'page_view' AND item_profile IS NOT NULL AND day >= ?
+    `, since),
     top_orgs: q(`
       SELECT org_id AS value,
              COUNT(DISTINCT visitor_id) AS visitors,
@@ -336,6 +389,87 @@ function buildStats(params) {
       GROUP BY org_id HAVING visitors > 1
       ORDER BY spins DESC LIMIT 20
     `, since)
+  };
+}
+
+// ---------- Журнал сессий ----------
+function buildSessions(params) {
+  const sid = params.get('session');
+  const visitor = params.get('visitor');
+
+  // Хронология одной сессии — всё, что человек делал, по порядку
+  if (sid) {
+    const rows = db.prepare(`
+      SELECT ts, name, items_count, item_profile, props
+      FROM events WHERE session_id = ? ORDER BY id
+    `).all(sid);
+
+    const head = db.prepare(`
+      SELECT visitor_id, org_id, country, city, ua_browser, ua_os, is_mobile,
+             screen, lang, tz, referrer_host, is_invited, ip
+      FROM events WHERE session_id = ? ORDER BY id LIMIT 1
+    `).get(sid) || {};
+
+    let prev = null;
+    return {
+      session_id: sid,
+      meta: head,
+      events: rows.map((r) => {
+        const at = new Date(r.ts).getTime();
+        const gap = prev === null ? 0 : Math.round((at - prev) / 1000);
+        prev = at;
+        return {
+          ts: r.ts,
+          gap_s: gap,                    // сколько думал перед этим шагом
+          name: r.name,
+          items_count: r.items_count,
+          item_profile: r.item_profile ? JSON.parse(r.item_profile) : null,
+          props: r.props ? JSON.parse(r.props) : null
+        };
+      })
+    };
+  }
+
+  // Все визиты одного человека — чтобы видеть возвраты
+  const where = visitor ? 'WHERE visitor_id = ?' : '';
+  const args = visitor ? [visitor] : [];
+  const limit = clampInt(params.get('limit'), 1, 200) || 50;
+
+  const sessions = db.prepare(`
+    SELECT
+      session_id,
+      MIN(ts) AS started_at,
+      MAX(ts) AS ended_at,
+      COUNT(*) AS events,
+      MAX(visitor_id) AS visitor_id,
+      MAX(org_id)     AS org_id,
+      MAX(country)    AS country,
+      MAX(ua_browser) AS browser,
+      MAX(ua_os)      AS os,
+      MAX(is_mobile)  AS is_mobile,
+      MAX(is_invited) AS is_invited,
+      MAX(items_count) AS items_count,
+      MAX(item_profile) AS item_profile,
+      SUM(name = 'spin_complete') AS spins,
+      SUM(name = 'spin_abandon')  AS abandons,
+      SUM(name = 'items_changed') AS edits,
+      SUM(name = 'link_copied')   AS shares,
+      SUM(name = 'error')         AS errors,
+      SUM(name = 'audio_blocked') AS audio_blocked
+    FROM events
+    ${where}
+    GROUP BY session_id
+    ORDER BY started_at DESC
+    LIMIT ?
+  `).all(...args, limit);
+
+  return {
+    count: sessions.length,
+    sessions: sessions.map((s) => Object.assign(s, {
+      duration_s: Math.round(
+        (new Date(s.ended_at).getTime() - new Date(s.started_at).getTime()) / 1000),
+      item_profile: s.item_profile ? JSON.parse(s.item_profile) : null
+    }))
   };
 }
 
