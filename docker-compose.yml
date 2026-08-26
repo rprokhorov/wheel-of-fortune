@@ -43,6 +43,10 @@ services:
     volumes:
       - analytics_data:/data
     networks: [wheel]
+    # У джоба нет веб-сервера, поэтому унаследованный от образа
+    # HTTP-healthcheck неприменим — иначе контейнер вечно unhealthy.
+    healthcheck:
+      disable: true
     # Считаем в 03:20 UTC — сутки уже закрыты, нагрузки нет
     entrypoint: ["sh", "-c", "while true; do sleep $$(( ( (3*3600+20*60) - $$(date -u +%s) % 86400 + 86400 ) % 86400 )); node rollup.js; done"]
 
