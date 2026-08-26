@@ -55,6 +55,9 @@ const insert = db.prepare(`
   )
 `);
 
+// Собственный lower(): встроенный SQLite-вариант не трогает кириллицу
+db.function('lower_ru', (s) => (s === null ? null : String(s).toLowerCase()));
+
 const DASHBOARD_HTML = fs.readFileSync(path.join(__dirname, 'dashboard.html'), 'utf8');
 
 const insertMany = db.transaction((rows) => {
@@ -454,9 +457,41 @@ function buildSessions(params) {
     };
   }
 
-  // Все визиты одного человека — чтобы видеть возвраты
-  const where = visitor ? 'WHERE visitor_id = ?' : '';
-  const args = visitor ? [visitor] : [];
+  // Фильтры: по человеку, по адресу, по сети, по команде или по
+  // содержимому списка. Пустые параметры просто не участвуют.
+  const filters = [];
+  const args = [];
+
+  const addFilter = (param, sql) => {
+    const value = (params.get(param) || '').trim();
+    if (value) { filters.push(sql); args.push(value); }
+  };
+
+  addFilter('visitor', 'visitor_id = ?');
+  addFilter('ip',      'ip = ?');
+  addFilter('org',     'org_id = ?');
+  addFilter('wheel',   'wheel_id = ?');
+
+  // Свободный поиск: по подстроке в вариантах списка или началу
+  // любого идентификатора — чтобы не гадать, что именно копируешь.
+  const q = (params.get('q') || '').trim();
+  if (q) {
+    // LIKE в SQLite игнорирует регистр только для латиницы, поэтому
+    // для поиска по спискам приводим обе стороны к нижнему регистру
+    // средствами JS-функции lower_ru (см. db.function ниже).
+    filters.push(`(
+      lower_ru(items_text) LIKE lower_ru(?) OR ip LIKE ? OR
+      org_id LIKE ? OR visitor_id LIKE ? OR session_id LIKE ?
+    )`);
+    args.push(`%${q}%`, `${q}%`, `${q}%`, `${q}%`, `${q}%`);
+  }
+
+  // Фильтр применяем к сессии целиком: если событие подошло,
+  // показываем весь визит, а не одно совпавшее событие.
+  const where = filters.length
+    ? `WHERE session_id IN (SELECT session_id FROM events WHERE ${filters.join(' AND ')})`
+    : '';
+
   const limit = clampInt(params.get('limit'), 1, 200) || 50;
 
   const sessions = db.prepare(`

@@ -101,6 +101,8 @@
     border: 1px solid #e8d9a8; font-size: 12px;
   }
   code.ip { font-size: 12px; color: #6f5f4c; }
+  code.clickable, .clickable { cursor: pointer; text-decoration: underline dotted; }
+  code.clickable:hover, .clickable:hover { color: var(--blue); }
   .filter input {
     flex: 1; max-width: 380px; padding: 7px 11px; border: 1px solid var(--line);
     border-radius: 9px; background: var(--panel); font-size: 13px; font-family: inherit;
@@ -359,38 +361,64 @@ function profileHint(pr) {
 const hhmm = (ts) => new Date(ts).toLocaleString('ru-RU',
   { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
 
-async function loadSessions(visitor) {
+let sessionFilter = {};
+
+async function loadSessions(filter) {
+  sessionFilter = filter || {};
   const root = $('root');
   root.innerHTML = '<p class="empty">Загружаю…</p>';
   try {
-    const qs = visitor ? `?visitor=${encodeURIComponent(visitor)}` : '';
-    const res = await fetch(`/api/sessions${qs}`, { credentials: 'same-origin' });
+    const qs = new URLSearchParams(
+      Object.entries(sessionFilter).filter(([, v]) => v)).toString();
+    const res = await fetch(`/api/sessions${qs ? '?' + qs : ''}`,
+      { credentials: 'same-origin' });
     if (!res.ok) throw new Error('HTTP ' + res.status);
-    renderSessions(await res.json(), visitor);
+    renderSessions(await res.json());
   } catch (err) {
     root.innerHTML = `<div class="err">Не удалось загрузить: ${esc(err.message)}</div>`;
   }
 }
 
-function renderSessions(d, visitor) {
+// Метки активных фильтров — чтобы было видно, что именно отфильтровано
+const FILTER_LABELS = {
+  q: 'поиск', visitor: 'посетитель', ip: 'IP', org: 'сеть', wheel: 'команда'
+};
+
+function renderSessions(d) {
   const rows = d.sessions || [];
+  const active = Object.entries(sessionFilter).filter(([, v]) => v);
+
   $('root').innerHTML = `
     <div class="filter">
-      <input id="visitor-filter" placeholder="Фильтр по visitor_id — все визиты одного человека"
-             value="${esc(visitor || '')}">
-      <button class="tag" id="visitor-apply" style="cursor:pointer;padding:7px 13px">Показать</button>
-      ${visitor ? '<button class="tag" id="visitor-clear" style="cursor:pointer;padding:7px 13px">Сбросить</button>' : ''}
+      <input id="q" placeholder="IP, хеш сети, visitor_id или слово из списка"
+             value="${esc(sessionFilter.q || '')}">
+      <button class="tag" id="q-apply" style="cursor:pointer;padding:7px 13px">Найти</button>
+      ${active.length ? '<button class="tag" id="q-clear" style="cursor:pointer;padding:7px 13px">Сбросить</button>' : ''}
     </div>
+    ${active.length ? `<p class="meta-line" style="padding-left:0">
+      Фильтр: ${active.map(([k, v]) =>
+        `<span class="tag">${esc(FILTER_LABELS[k] || k)}: ${esc(v)}</span>`).join(' ')}
+      · найдено сессий: ${rows.length}
+    </p>` : ''}
     <div class="panel">
-      ${rows.length ? rows.map(sessionRow).join('') : '<p class="empty">Пока нет сессий</p>'}
+      ${rows.length ? rows.map(sessionRow).join('')
+        : '<p class="empty">Ничего не найдено</p>'}
     </div>`;
 
-  $('visitor-apply').onclick = () => loadSessions($('visitor-filter').value.trim() || null);
-  $('visitor-filter').onkeydown = (e) => { if (e.key === 'Enter') $('visitor-apply').click(); };
-  if ($('visitor-clear')) $('visitor-clear').onclick = () => loadSessions(null);
+  $('q-apply').onclick = () => loadSessions({ q: $('q').value.trim() });
+  $('q').onkeydown = (e) => { if (e.key === 'Enter') $('q-apply').click(); };
+  if ($('q-clear')) $('q-clear').onclick = () => loadSessions({});
 
   document.querySelectorAll('.sess__head').forEach((el) => {
     el.onclick = () => toggleSession(el.dataset.sid);
+  });
+
+  // Клик по IP, сети или посетителю — фильтр по этому значению
+  document.querySelectorAll('[data-filter]').forEach((el) => {
+    el.onclick = (e) => {
+      e.stopPropagation();
+      loadSessions({ [el.dataset.filter]: el.dataset.value });
+    };
   });
 }
 
@@ -410,7 +438,8 @@ function sessionRow(s) {
       <span class="sess__when">${hhmm(s.started_at)}</span>
       <span class="sess__tags">${tags.join('')}</span>
       <span class="step__det">
-        <code class="ip">${esc(s.ip || '—')}</code> ·
+        <code class="ip clickable" data-filter="ip" data-value="${esc(s.ip || '')}"
+              title="Показать все визиты с этого адреса">${esc(s.ip || '—')}</code> ·
         ${esc(s.country || '—')} · ${esc(s.browser || '—')} · ${s.is_mobile ? 'моб.' : 'десктоп'}
       </span>
       <span><span class="dots">${'●'.repeat(Math.min(s.spins || 0, 8))}</span> ${s.duration_s}с</span>
@@ -437,9 +466,9 @@ async function toggleSession(sid) {
     const m = d.meta || {};
     box.innerHTML = `
       <p class="meta-line" style="padding-left:0">
-        IP <code class="ip">${esc(m.ip)}</code> ·
-        visitor <code>${esc(m.visitor_id)}</code> ·
-        сеть <code>${esc(m.org_id)}</code> ·
+        IP <code class="ip clickable" data-filter="ip" data-value="${esc(m.ip || '')}">${esc(m.ip)}</code> ·
+        visitor <code class="clickable" data-filter="visitor" data-value="${esc(m.visitor_id || '')}">${esc(m.visitor_id)}</code> ·
+        сеть <code class="clickable" data-filter="org" data-value="${esc(m.org_id || '')}">${esc(m.org_id)}</code> ·
         ${esc(m.city || m.country || '—')} · ${esc(m.os || '')} ${esc(m.browser || '')} ·
         ${esc(m.screen || '')} · ${esc(m.tz || '')}
         ${m.referrer_host ? ' · из ' + esc(m.referrer_host) : ''}
