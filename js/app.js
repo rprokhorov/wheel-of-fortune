@@ -738,6 +738,13 @@
   const arrivedWithParams = new URLSearchParams(location.search).has('items');
 
   readUrl();          // URL важнее сохранённого состояния
+
+  // Состояние из ссылки закрепляем сразу. Без этого в localStorage
+  // остался бы прежний список, и после перезагрузки без параметров
+  // пользователь вернулся бы к своему старому набору вместо того,
+  // которым с ним поделились.
+  if (location.search) save();
+
   resizeConfetti();
   renderControls();
   renderAll();

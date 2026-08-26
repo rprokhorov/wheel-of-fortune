@@ -201,4 +201,12 @@
   }
 
   document.documentElement.lang = lang;
+
+  // Применяем словарь сразу: разметка в HTML написана по-русски,
+  // и без этого ?lang=en открывался бы с русскими подписями.
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', applyStatic);
+  } else {
+    applyStatic();
+  }
 })();

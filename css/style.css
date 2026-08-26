@@ -619,6 +619,10 @@ h1 {
   text-decoration: line-through;
 }
 
+/* display: flex перебивает атрибут hidden — возвращаем ему силу,
+   иначе при «Без музыки» ползунок громкости остаётся на экране */
+.volume-row[hidden] { display: none; }
+
 .volume-row {
   display: flex;
   align-items: center;
