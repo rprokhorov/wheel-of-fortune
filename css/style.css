@@ -88,6 +88,26 @@ button, label { -webkit-tap-highlight-color: transparent; }
 .cloud--one { top: 15%; left: 5%; transform: scale(0.8); }
 .cloud--two { top: 31%; right: 4%; transform: scale(0.58); opacity: 0.78; }
 
+.lang-switch {
+  position: absolute;
+  z-index: 5;
+  top: 14px;
+  right: 0;
+  padding: 6px 14px;
+  border: 2px solid #b6844d;
+  border-radius: 20px;
+  background: var(--cream);
+  color: #6f451f;
+  cursor: pointer;
+  font-family: var(--font-body);
+  font-weight: 600;
+  font-size: 13px;
+  box-shadow: 0 3px 0 rgba(110, 71, 38, .25);
+  transition: transform 120ms ease;
+}
+.lang-switch:hover { transform: translateY(-2px); background: #ffe9a8; }
+.lang-switch:active { transform: translateY(1px); box-shadow: 0 1px 0 rgba(110, 71, 38, .25); }
+
 /* --- Каркас страницы --- */
 .page-shell {
   position: relative;
@@ -675,16 +695,6 @@ footer {
 }
 footer i { color: var(--red); font-style: normal; }
 
-footer { flex-wrap: wrap; justify-content: center; text-align: center; }
-.footer-note {
-  flex-basis: 100%;
-  margin-top: 6px;
-  color: #7a6449;
-  font-family: var(--font-body);
-  font-size: 11px;
-  opacity: .8;
-}
-.footer-note a { color: inherit; }
 
 /* --- Тост --- */
 .toast {

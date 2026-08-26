@@ -5,7 +5,10 @@
   const HISTORY_KEY  = 'wof.history';
   const SETTINGS_KEY = 'wof.settings';
 
-  const DEFAULT_ITEMS = ['Пицца', 'Суши', 'Бургер', 'Паста', 'Салат', 'Шаурма'];
+  // Список по умолчанию зависит от языка интерфейса
+  const defaultItems = () =>
+    (window.wofI18n ? window.wofI18n.defaults()
+                    : ['Пицца', 'Суши', 'Бургер', 'Паста', 'Салат', 'Шаурма']);
 
   const DEFAULT_SETTINGS = {
     sound: true,
@@ -19,14 +22,14 @@
 
   // Треки: 20-секундные фрагменты, зацикливаются на всё время вращения.
   const TRACKS = {
-    none:     { name: 'Без музыки',        src: null },
+    none:     { name: null,                 src: null },   // подпись берётся из словаря
     kalambur: { name: 'Деревня дураков',   src: 'music/kalambur.m4a' },
     nupogodi: { name: 'Ну, погоди!',       src: 'music/nu-pogodi.m4a' },
     benny:    { name: 'Шоу Бенни Хилла',   src: 'music/benny-hill.m4a' }
   };
 
   // ---------- Состояние ----------
-  let items    = load(STORAGE_KEY, DEFAULT_ITEMS);
+  let items    = load(STORAGE_KEY, defaultItems());
   let history  = load(HISTORY_KEY, []);
   let settings = Object.assign({}, DEFAULT_SETTINGS, load(SETTINGS_KEY, {}));
 
@@ -76,6 +79,10 @@
   }
 
   const clamp   = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
+
+  // Перевод. Если i18n.js не загрузился, возвращаем сам ключ —
+  // страница остаётся рабочей, просто с служебными подписями.
+  const t = (key, vars) => (window.wofI18n ? window.wofI18n.t(key, vars) : key);
 
   // Аналитика опциональна: если analytics.js не загрузился или сбор
   // отключён, вызовы превращаются в пустышки.
@@ -148,7 +155,7 @@
       ctx.font = '32px Neucha, cursive';
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
-      ctx.fillText('Добавьте варианты', 0, 90);
+      ctx.fillText(t('items.empty'), 0, 90);
       ctx.restore();
       return;
     }
@@ -313,7 +320,7 @@
     spinBtn.classList.add('is-spinning');
     pointer.classList.add('is-ticking');
     resultBox.classList.remove('is-winning');
-    resultText.textContent = 'Крутится…';
+    resultText.textContent = t('result.spinning');
 
     const slice  = (Math.PI * 2) / items.length;
     const winner = Math.floor(Math.random() * items.length);
@@ -373,7 +380,7 @@
     durInput.disabled = false;
     spinBtn.classList.remove('is-spinning');
     pointer.classList.remove('is-ticking');
-    spinText.textContent = 'Крутить ещё';
+    spinText.textContent = t('spin.again');
     stopMusic();
 
     const winner = items[winnerIndex];
@@ -401,7 +408,7 @@
     $('decision-name').textContent = name;
     const isLast = items.length === 1;
     $('remove-btn').disabled = isLast;
-    $('decision-hint').textContent = isLast ? 'Последний вариант удалить нельзя' : '';
+    $('decision-hint').textContent = isLast ? t('dialog.lastOne') : '';
     dialog.returnValue = '';
     dialog.showModal();
   }
@@ -511,7 +518,7 @@
     if (history.length === 0) {
       const li = document.createElement('li');
       li.className = 'empty';
-      li.textContent = 'Пока пусто';
+      li.textContent = t('history.empty');
       el.appendChild(li);
       return;
     }
@@ -537,10 +544,11 @@
   // ---------- Элементы управления ----------
   function buildMusicOptions() {
     musicSel.innerHTML = '';
-    Object.entries(TRACKS).forEach(([id, t]) => {
+    Object.entries(TRACKS).forEach(([id, trackData]) => {
       const opt = document.createElement('option');
       opt.value = id;
-      opt.textContent = t.name;
+      // Имена треков не переводятся — только подпись «Без музыки»
+      opt.textContent = trackData.name || t('music.none');
       musicSel.appendChild(opt);
     });
     musicSel.value = settings.music;
@@ -548,7 +556,7 @@
 
   function renderControls() {
     durInput.value = settings.duration;
-    durOut.textContent = settings.duration + ' сек';
+    durOut.textContent = t('duration.sec', { n: settings.duration });
 
     volInput.value = settings.volume;
     volOut.textContent = settings.volume + '%';
@@ -556,14 +564,14 @@
 
     soundBtn.classList.toggle('is-muted', !settings.sound);
     soundBtn.setAttribute('aria-pressed', String(!settings.sound));
-    soundBtn.setAttribute('aria-label', settings.sound ? 'Выключить звуковые эффекты' : 'Включить звуковые эффекты');
+    soundBtn.setAttribute('aria-label', t(settings.sound ? 'music.soundOff' : 'music.soundOn'));
 
     buildMusicOptions();
   }
 
   durInput.addEventListener('input', () => {
     settings.duration = clamp(parseInt(durInput.value, 10) || 20, 1, 20);
-    durOut.textContent = settings.duration + ' сек';
+    durOut.textContent = t('duration.sec', { n: settings.duration });
   });
   durInput.addEventListener('change', () => {
     save();
@@ -589,7 +597,7 @@
     settings.sound = !settings.sound;
     save();
     renderControls();
-    showToast(settings.sound ? 'Звуковые эффекты включены' : 'Звуковые эффекты выключены');
+    showToast(t(settings.sound ? 'toast.soundOn' : 'toast.soundOff'));
   });
 
   // ---------- Список ----------
@@ -621,12 +629,12 @@
   $('apply-items').addEventListener('click', () => {
     const list = parseItems(itemsInput.value);
     if (!list.length) {
-      showToast('Список не может быть пустым');
+      showToast(t('toast.emptyList'));
       itemsInput.value = items.join('\n');
       return;
     }
     setItems(list, 'apply');
-    showToast(`Вариантов: ${list.length}`);
+    showToast(t('toast.itemsCount', { n: list.length }));
   });
 
   $('shuffle').addEventListener('click', () => {
@@ -635,17 +643,17 @@
       [items[i], items[j]] = [items[j], items[i]];
     }
     setItems(items, 'shuffle');
-    showToast('Перемешано');
+    showToast(t('toast.shuffled'));
   });
 
   $('copy-link').addEventListener('click', async () => {
     const url = location.origin + location.pathname + '?' + buildQuery();
     try {
       await navigator.clipboard.writeText(url);
-      showToast('Ссылка скопирована');
+      showToast(t('toast.copied'));
       track('link_copied', { items_count: items.length, music: settings.music });
     } catch (_) {
-      prompt('Скопируйте ссылку:', url);
+      prompt(t('toast.copyManual'), url);
     }
   });
 
@@ -653,7 +661,7 @@
     history = [];
     save();
     renderHistory();
-    showToast('История очищена');
+    showToast(t('toast.historyCleared'));
   });
 
   $('export').addEventListener('click', () => {
@@ -678,9 +686,9 @@
         const parsed = parseItems(list.map(String).join('\n'));
         if (!parsed.length) throw new Error('empty');
         setItems(parsed, 'import');
-        showToast(`Импортировано: ${parsed.length}`);
+        showToast(t('toast.imported', { n: parsed.length }));
       } catch (_) {
-        showToast('Не удалось прочитать файл');
+        showToast(t('toast.importFailed'));
       }
     };
     reader.readAsText(file);
@@ -697,6 +705,21 @@
       e.preventDefault();
       if (!dialog.open) spin();
     }
+  });
+
+  // Переключение языка
+  $('lang-switch').addEventListener('click', () => {
+    if (window.wofI18n) window.wofI18n.setLang(window.wofI18n.other());
+  });
+
+  // Перерисовываем всё, что построено кодом: статическую разметку
+  // обновляет сам i18n, а списки, колесо и подписи — мы.
+  window.addEventListener('wof:langchange', () => {
+    renderControls();
+    renderAll();
+    // Результат сбрасываем только если розыгрыша ещё не было:
+    // имя победителя переводить не нужно.
+    if (!history.length) resultText.textContent = t('result.placeholder');
   });
 
   window.addEventListener('resize', resizeConfetti);

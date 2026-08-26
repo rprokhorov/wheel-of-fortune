@@ -23,10 +23,14 @@
 </div>
 
 <main class="page-shell">
+  <button class="lang-switch" id="lang-switch" type="button"
+          data-i18n="lang.switch" data-i18n-aria="lang.aria"
+          aria-label="Переключить язык">English</button>
+
   <header class="hero">
-    <p class="eyebrow"><span>✦</span> испытайте удачу <span>✦</span></p>
-    <h1>А ну-ка, крути!</h1>
-    <p class="subtitle">Колесо всё решит. Мы тут совершенно ни при чём.</p>
+    <p class="eyebrow"><span>✦</span> <span data-i18n="hero.eyebrow">испытайте удачу</span> <span>✦</span></p>
+    <h1 data-i18n="hero.title">А ну-ка, крути!</h1>
+    <p class="subtitle" data-i18n="hero.subtitle">Колесо всё решит. Мы тут совершенно ни при чём.</p>
   </header>
 
   <section class="game-card" aria-label="Колесо фортуны">
@@ -44,25 +48,25 @@
 
     <div class="control-side">
       <div class="result-box" id="result-box" aria-live="polite">
-        <span class="result-box__label">Колесо выбрало</span>
-        <strong id="result-text">Кому же повезёт?</strong>
+        <span class="result-box__label" data-i18n="result.label">Колесо выбрало</span>
+        <strong id="result-text" data-i18n="result.placeholder">Кому же повезёт?</strong>
       </div>
 
       <details class="people-editor" id="items-editor">
         <summary>
-          <span>Список вариантов</span>
+          <span data-i18n="items.title">Список вариантов</span>
           <strong id="counter">0</strong>
-          <i>изменить</i>
+          <i data-i18n="items.edit">изменить</i>
         </summary>
         <div class="people-editor__body">
-          <label for="items-input">По одному варианту на строке</label>
+          <label for="items-input" data-i18n="items.hint">По одному варианту на строке</label>
           <textarea id="items-input" rows="6" spellcheck="false"></textarea>
           <div class="people-editor__actions">
-            <button id="apply-items" type="button">Применить</button>
-            <button id="shuffle" type="button">Перемешать</button>
-            <button id="copy-link" type="button">Скопировать ссылку</button>
-            <button id="export" type="button">Экспорт</button>
-            <button id="import-btn" type="button">Импорт</button>
+            <button id="apply-items" type="button" data-i18n="items.apply">Применить</button>
+            <button id="shuffle" type="button" data-i18n="items.shuffle">Перемешать</button>
+            <button id="copy-link" type="button" data-i18n="items.copyLink">Скопировать ссылку</button>
+            <button id="export" type="button" data-i18n="items.export">Экспорт</button>
+            <button id="import-btn" type="button" data-i18n="items.import">Импорт</button>
             <input type="file" id="import" accept="application/json,.json" hidden>
           </div>
         </div>
@@ -70,7 +74,7 @@
 
       <div class="spin-duration">
         <div class="spin-duration__label">
-          <label for="duration">Время вращения</label>
+          <label for="duration" data-i18n="duration.label">Время вращения</label>
           <output id="duration-out" for="duration">20 сек</output>
         </div>
         <input id="duration" type="range" min="1" max="20" step="1" value="20">
@@ -82,49 +86,45 @@
 
       <button class="spin-button" id="spin" type="button">
         <span class="spin-button__icon">↻</span>
-        <span class="spin-button__text">Крутить колесо</span>
+        <span class="spin-button__text" data-i18n="spin.button">Крутить колесо</span>
       </button>
 
       <div class="music-control">
         <div class="music-control__topline">
           <div class="equalizer" id="equalizer" aria-hidden="true"><i></i><i></i><i></i><i></i></div>
-          <select class="track-select" id="music" aria-label="Мелодия вращения"></select>
+          <select class="track-select" id="music" data-i18n-aria="music.aria" aria-label="Мелодия вращения"></select>
           <button class="sound-button" id="sound-on" type="button" aria-label="Выключить звуковые эффекты" aria-pressed="false">
             <span aria-hidden="true">♪</span>
           </button>
         </div>
         <div class="volume-row" id="volume-field">
-          <label for="volume">Громкость</label>
+          <label for="volume" data-i18n="music.volume">Громкость</label>
           <input id="volume" type="range" min="0" max="100" step="5" value="50">
           <output id="volume-out">50%</output>
         </div>
-        <p>Мелодия играет только во время вращения</p>
+        <p data-i18n="music.note">Мелодия играет только во время вращения</p>
       </div>
 
       <details class="history-box">
         <summary>
-          <span>История</span>
+          <span data-i18n="history.title">История</span>
           <strong id="history-count">0</strong>
-          <i>показать</i>
+          <i data-i18n="history.show">показать</i>
         </summary>
         <div class="history-box__body">
           <ol id="history" class="history"></ol>
-          <button id="clear-history" type="button" class="link-btn">Очистить историю</button>
+          <button id="clear-history" type="button" class="link-btn" data-i18n="history.clear">Очистить историю</button>
         </div>
       </details>
 
-      <p class="hint">Пробел или клик по колесу — тоже крутит.</p>
+      <p class="hint" data-i18n="hint.keys">Пробел или клик по колесу — тоже крутит.</p>
     </div>
   </section>
 
   <footer>
-    <span>Сделано с удачей</span>
+    <span data-i18n="footer.left">Сделано с удачей</span>
     <i aria-hidden="true">◆</i>
-    <span>и щепоткой безумия</span>
-    <span class="footer-note">
-      Идёт внутреннее тестирование: сохраняем статистику посещений и варианты из колеса.
-      <a href="?analytics=off">Отключить</a>
-    </span>
+    <span data-i18n="footer.right">и щепоткой безумия</span>
   </footer>
 </main>
 
@@ -132,12 +132,12 @@
 
 <dialog class="decision-dialog" id="decision-dialog">
   <form method="dialog">
-    <span class="decision-dialog__eyebrow">Колесо выбрало</span>
-    <strong id="decision-name">Вариант</strong>
-    <p>Удалить его из списка перед следующим вращением?</p>
+    <span class="decision-dialog__eyebrow" data-i18n="dialog.eyebrow">Колесо выбрало</span>
+    <strong id="decision-name" data-i18n="dialog.name">Вариант</strong>
+    <p data-i18n="dialog.question">Удалить его из списка перед следующим вращением?</p>
     <div class="decision-dialog__actions">
-      <button class="decision-dialog__remove" id="remove-btn" value="remove">Да, удалить</button>
-      <button class="decision-dialog__keep" value="keep" autofocus>Нет, оставить</button>
+      <button class="decision-dialog__remove" id="remove-btn" value="remove" data-i18n="dialog.remove">Да, удалить</button>
+      <button class="decision-dialog__keep" value="keep" autofocus data-i18n="dialog.keep">Нет, оставить</button>
     </div>
     <small id="decision-hint"></small>
   </form>
@@ -145,6 +145,7 @@
 
 <canvas id="confetti" aria-hidden="true"></canvas>
 
+<script src="js/i18n.js"></script>
 <script src="js/analytics.js"></script>
 <script src="js/app.js"></script>
 </body>
