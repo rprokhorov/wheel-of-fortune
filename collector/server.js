@@ -12,6 +12,12 @@ const crypto = require('crypto');
 const Database = require('better-sqlite3');
 const geoip = require('geoip-lite');
 
+// Чистые функции разбора и нормализации — их проверяют юнит-тесты
+const {
+  EVENTS, clampStr, clampInt, orgIdFrom, clientIp, parseUa, hostOf,
+  normalizeItems, normalizeProfile, normalizeProps
+} = require('./lib.js');
+
 const PORT     = Number(process.env.PORT || 8081);
 const DB_PATH  = process.env.DB_PATH || '/data/analytics.db';
 const SALT     = process.env.ORG_SALT || '';
@@ -64,104 +70,19 @@ const insertMany = db.transaction((rows) => {
   for (const row of rows) insert.run(row);
 });
 
-// ---------- Разрешённые события и поля ----------
-// Белый список: всё, чего здесь нет, отбрасывается. Так случайная
-// правка клиента не наполнит базу мусором.
-const EVENTS = new Set([
-  'page_view', 'spin_start', 'spin_complete', 'spin_abandon',
-  'decision', 'items_changed', 'link_copied', 'music_changed',
-  'duration_changed', 'audio_blocked', 'error'
-]);
-
-const PROP_KEYS = new Set([
-  'has_params', 'load_ms', 'duration_s', 'music', 'volume', 'sound_on',
-  'spin_index', 'actual_ms', 'progress_pct', 'choice', 'items_left',
-  'before', 'after', 'source', 'from', 'to', 'track', 'message', 'source_line'
-]);
-
-const PROFILE_KEYS = new Set([
-  'n', 'len_avg', 'len_min', 'len_max', 'looks_like_names',
-  'pct_cyrillic', 'pct_latin', 'pct_emoji', 'pct_one_word'
-]);
-
 const MAX_BATCH = 50;
 const MAX_BODY  = 64 * 1024;
 
-// ---------- Утилиты ----------
-const clampStr = (v, max = 120) =>
-  typeof v === 'string' && v ? v.slice(0, max) : null;
 
-const clampInt = (v, lo, hi) => {
-  // null и '' Number() превращает в 0, поэтому отсеиваем их явно:
-  // иначе отсутствующий параметр зажимался бы в нижнюю границу.
-  if (v === null || v === undefined || v === '') return null;
-  const n = Number(v);
-  if (!Number.isFinite(n)) return null;
-  return Math.min(hi, Math.max(lo, Math.round(n)));
-};
 
-// org_id: хеш IP с постоянной солью. Даёт группировку «одна сеть»,
-// но в обратную сторону не разворачивается.
-function orgIdFrom(ip) {
-  if (!ip) return null;
-  return crypto.createHash('sha256').update(SALT + '|' + ip).digest('hex').slice(0, 16);
-}
 
-function clientIp(req) {
-  // Caddy проставляет X-Forwarded-For; берём первый адрес — исходный клиент.
-  const xff = req.headers['x-forwarded-for'];
-  if (typeof xff === 'string' && xff.length) {
-    const first = xff.split(',')[0].trim();
-    if (first) return first;
-  }
-  return req.socket.remoteAddress || null;
-}
-
-// Грубый разбор UA: нужен только класс браузера и ОС, не точная версия.
-function parseUa(ua) {
-  if (!ua) return { browser: null, os: null, mobile: 0 };
-  const s = ua.toLowerCase();
-  let browser = 'other';
-  if (s.includes('edg/')) browser = 'edge';
-  else if (s.includes('opr/') || s.includes('opera')) browser = 'opera';
-  else if (s.includes('yabrowser')) browser = 'yandex';
-  else if (s.includes('firefox')) browser = 'firefox';
-  else if (s.includes('chrome') || s.includes('crios')) browser = 'chrome';
-  else if (s.includes('safari')) browser = 'safari';
-
-  let os = 'other';
-  if (s.includes('android')) os = 'android';
-  else if (s.includes('iphone') || s.includes('ipad') || s.includes('ios')) os = 'ios';
-  else if (s.includes('mac os')) os = 'macos';
-  else if (s.includes('windows')) os = 'windows';
-  else if (s.includes('linux')) os = 'linux';
-
-  const mobile = /mobile|android|iphone|ipad/.test(s) ? 1 : 0;
-  return { browser, os, mobile };
-}
-
-function hostOf(url) {
-  try {
-    return new URL(url).hostname.slice(0, 120);
-  } catch (_) {
-    return null;
-  }
-}
 
 // ---------- Обработка пачки ----------
 function normalize(ev, ctx) {
   if (!ev || typeof ev !== 'object') return null;
   if (!EVENTS.has(ev.name)) return null;
 
-  const props = {};
-  if (ev.props && typeof ev.props === 'object') {
-    for (const [k, v] of Object.entries(ev.props)) {
-      if (!PROP_KEYS.has(k)) continue;
-      if (typeof v === 'string') props[k] = v.slice(0, 200);
-      else if (typeof v === 'number' && Number.isFinite(v)) props[k] = v;
-      else if (typeof v === 'boolean') props[k] = v ? 1 : 0;
-    }
-  }
+  const props = normalizeProps(ev.props);
 
   const now = new Date();
   return {
@@ -197,30 +118,7 @@ function normalize(ev, ctx) {
   };
 }
 
-// Варианты из колеса. Ограничиваем число и длину, чтобы событие
-// не раздулось: 30 — предел списка в самом продукте.
-function normalizeItems(raw) {
-  if (!Array.isArray(raw) || !raw.length) return null;
-  const out = raw
-    .slice(0, 30)
-    .map((s) => String(s).trim().slice(0, 60))
-    .filter(Boolean);
-  return out.length ? JSON.stringify(out) : null;
-}
 
-// Профиль списка: пропускаем только известные числовые признаки.
-// Строки сюда попасть не должны — если попали, значит клиент шлёт
-// не то, что мы просили, и это отбрасывается.
-function normalizeProfile(raw) {
-  if (!raw || typeof raw !== 'object') return null;
-  const out = {};
-  for (const [k, v] of Object.entries(raw)) {
-    if (!PROFILE_KEYS.has(k)) continue;
-    const n = Number(v);
-    if (Number.isFinite(n)) out[k] = Math.round(n);
-  }
-  return Object.keys(out).length ? JSON.stringify(out) : null;
-}
 
 // ---------- Простой rate-limit в памяти ----------
 // Защищает от случайного цикла в клиенте. IP здесь только в памяти.
@@ -279,7 +177,7 @@ const server = http.createServer((req, res) => {
         const geo = ip ? geoip.lookup(ip) : null;
         const ctx = {
           ip,
-          org_id:  orgIdFrom(ip),
+          org_id:  orgIdFrom(ip, SALT),
           country: geo ? geo.country : null,
           city:    geo && geo.city ? geo.city : null,
           asn_org: null,          // заполняется отдельным обогащением, см. README

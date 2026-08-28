@@ -1,4 +1,4 @@
-name: E2E-тесты
+name: Тесты
 
 on:
   push:
@@ -22,11 +22,16 @@ jobs:
       - name: Установка зависимостей
         run: npm ci
 
+      # Юниты бегут за доли секунды — гоняем их первыми,
+      # чтобы не ждать установки браузеров ради очевидной поломки
+      - name: Юнит-тесты
+        run: npm run test:unit
+
       - name: Установка браузеров
         run: npx playwright install --with-deps chromium webkit
 
-      - name: Прогон тестов
-        run: npx playwright test
+      - name: E2E-тесты
+        run: npm run test:e2e
 
       - name: Отчёт
         if: ${{ !cancelled() }}

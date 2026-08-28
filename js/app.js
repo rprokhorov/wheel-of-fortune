@@ -78,7 +78,9 @@
     syncUrl();
   }
 
-  const clamp   = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
+  // Чистая логика вынесена в core.js — её проверяют юнит-тесты
+  const core = window.wofCore;
+  const clamp = core.clamp;
 
   // Перевод. Если i18n.js не загрузился, возвращаем сам ключ —
   // страница остаётся рабочей, просто с служебными подписями.
@@ -115,7 +117,7 @@
     if (q.has('sound')) settings.sound = isTruthy(q.get('sound'));
   }
 
-  const isTruthy = (v) => v === '1' || v === 'true' || v === 'yes' || v === 'on';
+  const isTruthy = core.isTruthy;
 
   function buildQuery() {
     const q = new URLSearchParams();
@@ -308,8 +310,8 @@
   }
 
   // ---------- Вращение ----------
-  const easeOutQuint = (t) => 1 - Math.pow(1 - t, 5);
-  const normalizeAngle = (a) => ((a % (Math.PI * 2)) + Math.PI * 2) % (Math.PI * 2);
+  const easeOutQuint = core.easeOutQuint;
+  const normalizeAngle = core.normalizeAngle;
 
   function spin() {
     if (spinning || items.length === 0) return;
@@ -322,15 +324,13 @@
     resultBox.classList.remove('is-winning');
     resultText.textContent = t('result.spinning');
 
-    const slice  = (Math.PI * 2) / items.length;
     const winner = Math.floor(Math.random() * items.length);
 
     // Сектор 0 центрирован под указателем; чтобы туда пришёл winner,
     // колесо доворачивается на -winner*slice.
-    const turns = Math.max(3, Math.round(settings.duration * 1.6));
+    const turns = core.turnsForDuration(settings.duration);
     const from = rotation;
-    let to = -winner * slice + turns * Math.PI * 2;
-    while (to < from + Math.PI * 4) to += Math.PI * 2;
+    const to = core.targetRotation(winner, items.length, from, turns);
 
     const duration = settings.duration * 1000;
     const startTs  = performance.now();
@@ -370,8 +370,7 @@
   }
 
   function currentIndex() {
-    const slice = (Math.PI * 2) / items.length;
-    return Math.round(normalizeAngle(-rotation) / slice) % items.length;
+    return core.sectorAt(rotation, items.length);
   }
 
   function finishSpin(winnerIndex) {
@@ -611,20 +610,7 @@
     track('items_changed', { before, after: items.length, source: source || 'apply' });
   }
 
-  function parseItems(value) {
-    const seen = new Set();
-    return value
-      .split(/[\n,;]+/)
-      .map(s => s.trim())
-      .filter(s => {
-        if (!s) return false;
-        const key = s.toLocaleLowerCase('ru');
-        if (seen.has(key)) return false;   // дубликаты только запутывают колесо
-        seen.add(key);
-        return true;
-      })
-      .slice(0, 30);                       // больше 30 секторов нечитаемо
-  }
+  const parseItems = core.parseItems;
 
   $('apply-items').addEventListener('click', () => {
     const list = parseItems(itemsInput.value);

@@ -5,9 +5,12 @@
   "description": "Колесо фортуны — рандомайзер с настраиваемым списком и музыкой",
   "scripts": {
     "serve": "python3 -m http.server 8000 --bind 127.0.0.1",
-    "test": "playwright test",
+    "test": "npm run test:unit && npm run test:e2e",
+    "test:unit": "node --test \"tests/unit/*.test.js\"",
+    "test:e2e": "playwright test",
     "test:ui": "playwright test --ui",
-    "test:report": "playwright show-report"
+    "test:report": "playwright show-report",
+    "coverage": "node --experimental-test-coverage --test \"tests/unit/*.test.js\""
   },
   "devDependencies": {
     "@playwright/test": "^1.50.0"
