@@ -28,7 +28,7 @@ jobs:
         run: npm run test:unit
 
       - name: Установка браузеров
-        run: npx playwright install --with-deps chromium webkit
+        run: npx playwright install --with-deps chromium
 
       - name: E2E-тесты
         run: npm run test:e2e

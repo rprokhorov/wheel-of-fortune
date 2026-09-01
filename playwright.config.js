@@ -39,13 +39,19 @@ module.exports = defineConfig({
       }
     },
     {
+      // Мобильная вёрстка и тач-взаимодействие. Локально — на WebKit
+      // (ближе к реальному iOS), в CI — на мобильном Chromium: WebKit
+      // на ubuntu-раннере не стартует, роняя весь прогон.
       name: 'mobile',
-      use: {
-        ...devices['iPhone 13'],
-        launchOptions: {
-          args: ['--autoplay-policy=no-user-gesture-required']
-        }
-      }
+      use: process.env.CI
+        ? {
+            ...devices['Pixel 7'],
+            launchOptions: { args: ['--autoplay-policy=no-user-gesture-required'] }
+          }
+        : {
+            ...devices['iPhone 13'],
+            launchOptions: { args: ['--autoplay-policy=no-user-gesture-required'] }
+          }
     }
   ],
 
