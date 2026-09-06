@@ -8,7 +8,7 @@ WORKDIR /app
 COPY package.json ./
 RUN npm install --omit=dev && npm cache clean --force
 
-COPY server.js rollup.js schema.sql dashboard.html ./
+COPY server.js lib.js rollup.js schema.sql dashboard.html ./
 
 # Сюда монтируется том с базой
 VOLUME /data
