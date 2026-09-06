@@ -56,7 +56,31 @@
   .funnel-step .track { flex: 1; height: 21px; border-radius: 5px; background: #efe9dd; overflow: hidden; }
   .funnel-step .fill { height: 100%; background: var(--yellow); }
   .funnel-step .val { width: 92px; flex: none; text-align: right; font-variant-numeric: tabular-nums; color: var(--muted); }
-  svg { display: block; width: 100%; height: 190px; overflow: visible; }
+  svg { display: block; width: 100%; height: auto; overflow: visible; }
+
+  .chart-legend {
+    display: flex; gap: 18px; flex-wrap: wrap;
+    margin-bottom: 10px; font-size: 13px; color: var(--muted);
+  }
+  .chart-legend i {
+    display: inline-block; width: 11px; height: 11px;
+    border-radius: 3px; margin-right: 5px; vertical-align: -1px;
+  }
+
+  /* При длинном периоде столбцы не сжимаются в кашу, а уезжают в прокрутку */
+  .chart-scroll { overflow-x: auto; padding-bottom: 4px; }
+
+  .day-table { margin-top: 14px; }
+  .day-table summary {
+    display: flex; align-items: center; gap: 8px;
+    cursor: pointer; font-size: 13px; color: var(--muted); list-style: none;
+  }
+  .day-table summary::-webkit-details-marker { display: none; }
+  .day-table summary::before { content: "▸"; transition: transform 160ms ease; }
+  .day-table[open] summary::before { transform: rotate(90deg); }
+  .day-table summary i { font-style: normal; font-size: 12px; text-decoration: underline; }
+  .day-table table { margin-top: 8px; }
+  .day-table td, .day-table th { padding: 5px 4px; }
   .err { padding: 16px; border-radius: 10px; background: #fde8e7; color: #a92227; font-size: 14px; }
   footer { margin-top: 26px; color: var(--muted); font-size: 12px; }
 
@@ -275,24 +299,115 @@ function orgTable(rows) {
   </table>`;
 }
 
-function sparkline(days) {
-  if (days.length < 2) return '<p class="empty">Нужно хотя бы два дня данных</p>';
-  const w = 1000, h = 170, pad = 24;
-  const max = Math.max(...days.map((d) => Math.max(d.visitors || 0, d.spins || 0)), 1);
-  const x = (i) => pad + (i * (w - pad * 2)) / (days.length - 1);
-  const y = (v) => h - pad - ((v || 0) / max) * (h - pad * 2);
-  const path = (key) => days.map((d, i) => `${i ? 'L' : 'M'}${x(i).toFixed(1)},${y(d[key]).toFixed(1)}`).join('');
+function sparkline(rawDays) {
+  if (!rawDays.length) return '<p class="empty">Пока нет данных</p>';
 
-  return `<svg viewBox="0 0 ${w} ${h}" preserveAspectRatio="none" role="img">
-    <line x1="${pad}" y1="${h - pad}" x2="${w - pad}" y2="${h - pad}" stroke="#e2dbcd" stroke-width="2"/>
-    <path d="${path('visitors')}" fill="none" stroke="#3d9ca8" stroke-width="3" stroke-linejoin="round"/>
-    <path d="${path('spins')}" fill="none" stroke="#df3f36" stroke-width="3" stroke-linejoin="round"/>
-    <text x="${pad}" y="14" font-size="12" fill="#3d9ca8">— посетители</text>
-    <text x="${pad + 110}" y="14" font-size="12" fill="#df3f36">— розыгрыши</text>
-    <text x="${pad}" y="${h - 6}" font-size="11" fill="#8a7a68">${esc(days[0].day)}</text>
-    <text x="${w - pad}" y="${h - 6}" font-size="11" fill="#8a7a68" text-anchor="end">${esc(days[days.length - 1].day)}</text>
-    <text x="${pad - 6}" y="${y(max) + 4}" font-size="11" fill="#8a7a68" text-anchor="end">${max}</text>
-  </svg>`;
+  // Дни без визитов в выборку не попадают, поэтому дорисовываем их
+  // нулями: иначе провал в посещаемости выглядел бы как обычный день
+  const days = fillGaps(rawDays);
+
+  const w = 1000, h = 260;
+  const padL = 44, padR = 16, padT = 28, padB = 46;
+  const plotW = w - padL - padR;
+  const plotH = h - padT - padB;
+
+  const maxVal = Math.max(...days.map((d) => Math.max(d.visitors || 0, d.spins || 0)), 1);
+  // Округляем потолок вверх до «круглого» числа, чтобы подписи оси
+  // читались как 5/10/20, а не как 7/14/21
+  const step = maxVal <= 5 ? 1 : maxVal <= 20 ? 5 : maxVal <= 50 ? 10 : 20;
+  const top = Math.ceil(maxVal / step) * step;
+
+  // Столбцы: при одном дне ширину берём как для трёх, иначе он растянется
+  const slot = plotW / Math.max(days.length, 3);
+  const barW = Math.min(slot * 0.34, 22);
+  const cx = (i) => padL + slot * (i + 0.5);
+  const y = (v) => padT + plotH - ((v || 0) / top) * plotH;
+
+  // Подписи дат: при длинном периоде показываем не все, иначе сольются
+  const labelEvery = Math.ceil(days.length / 12);
+  const dayLabel = (d) => d.day.slice(8) + '.' + d.day.slice(5, 7);
+
+  const gridLines = [];
+  for (let v = 0; v <= top; v += step) {
+    gridLines.push(`<line x1="${padL}" y1="${y(v)}" x2="${w - padR}" y2="${y(v)}"
+      stroke="#e2dbcd" stroke-width="1"/>
+      <text x="${padL - 8}" y="${y(v) + 4}" font-size="12" fill="#8a7a68"
+        text-anchor="end">${v}</text>`);
+  }
+
+  const bars = days.map((d, i) => {
+    const vis = d.visitors || 0;
+    const sp = d.spins || 0;
+    const label = i % labelEvery === 0 || i === days.length - 1
+      ? `<text x="${cx(i)}" y="${h - padB + 18}" font-size="11" fill="#8a7a68"
+           text-anchor="middle">${esc(dayLabel(d))}</text>` : '';
+
+    return `<g>
+      <title>${esc(d.day)}: посетителей ${vis}, розыгрышей ${sp}</title>
+      <rect x="${cx(i) - barW}" y="${y(vis)}" width="${barW}"
+        height="${Math.max(padT + plotH - y(vis), vis ? 2 : 0)}"
+        fill="#3d9ca8" rx="2"/>
+      <rect x="${cx(i)}" y="${y(sp)}" width="${barW}"
+        height="${Math.max(padT + plotH - y(sp), sp ? 2 : 0)}"
+        fill="#df3f36" rx="2"/>
+      ${vis ? `<text x="${cx(i) - barW / 2}" y="${y(vis) - 5}" font-size="11"
+        fill="#2b6b76" text-anchor="middle" font-weight="600">${vis}</text>` : ''}
+      ${sp ? `<text x="${cx(i) + barW / 2}" y="${y(sp) - 5}" font-size="11"
+        fill="#a92227" text-anchor="middle" font-weight="600">${sp}</text>` : ''}
+      ${label}
+    </g>`;
+  }).join('');
+
+  const totalVis = days.reduce((s, d) => s + (d.visitors || 0), 0);
+  const totalSpins = days.reduce((s, d) => s + (d.spins || 0), 0);
+
+  return `
+    <div class="chart-legend">
+      <span><i style="background:#3d9ca8"></i> посетители · всего ${num(totalVis)}</span>
+      <span><i style="background:#df3f36"></i> розыгрыши · всего ${num(totalSpins)}</span>
+    </div>
+    <div class="chart-scroll">
+      <svg viewBox="0 0 ${w} ${h}" role="img" style="min-width:${Math.max(days.length * 46, 600)}px">
+        ${gridLines.join('')}
+        ${bars}
+        <line x1="${padL}" y1="${padT + plotH}" x2="${w - padR}" y2="${padT + plotH}"
+          stroke="#b5a891" stroke-width="2"/>
+      </svg>
+    </div>
+    ${dayTable(days)}`;
+}
+
+// Дозаполнение пропущенных дат нулями
+function fillGaps(days) {
+  if (days.length < 2) return days;
+  const byDay = new Map(days.map((d) => [d.day, d]));
+  const out = [];
+  const cursor = new Date(days[0].day + 'T00:00:00Z');
+  const last = new Date(days[days.length - 1].day + 'T00:00:00Z');
+
+  // Ограничение на всякий случай: за год цикл всё равно не уйдёт
+  for (let guard = 0; cursor <= last && guard < 400; guard++) {
+    const key = cursor.toISOString().slice(0, 10);
+    out.push(byDay.get(key) || { day: key, visitors: 0, spins: 0 });
+    cursor.setUTCDate(cursor.getUTCDate() + 1);
+  }
+  return out;
+}
+
+// Таблица под графиком: точные числа по каждому дню, если нужно свериться
+function dayTable(days) {
+  const rows = [...days].reverse();
+  return `<details class="day-table">
+    <summary><span>Числа по дням</span><i>показать</i></summary>
+    <table>
+      <tr><th>Дата</th><th class="num">Посетители</th><th class="num">Розыгрыши</th></tr>
+      ${rows.map((d) => `<tr>
+        <td>${esc(d.day)}</td>
+        <td class="num">${num(d.visitors)}</td>
+        <td class="num">${num(d.spins)}</td>
+      </tr>`).join('')}
+    </table>
+  </details>`;
 }
 
 // ---------- Сессии ----------
