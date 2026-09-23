@@ -5,17 +5,20 @@ tag=${1:?Укажите версионный тег}
 repo=${GITHUB_REPOSITORY:-rprokhorov/wheel-of-fortune}
 owner=${repo%%/*}
 owner=${owner,,}
+release_notes="docs/releases/$tag.md"
+
+if [[ ! -s "$release_notes" ]]; then
+  printf 'Не найдено описание релиза: %s\n' "$release_notes" >&2
+  exit 1
+fi
 
 if ! gh release view "$tag" --repo "$repo" >/dev/null 2>&1; then
-  gh release create "$tag" --repo "$repo" --generate-notes --verify-tag
+  gh release create "$tag" --repo "$repo" --notes-file "$release_notes" --verify-tag
 fi
 
 notes=$(mktemp)
 trap 'rm -f "$notes"' EXIT
-gh release view "$tag" --repo "$repo" --json body --jq .body > "$notes"
-if grep -Fq '<!-- wheel-images -->' "$notes"; then
-  exit 0
-fi
+cp "$release_notes" "$notes"
 
 cat >> "$notes" <<EOF
 
