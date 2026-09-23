@@ -1,5 +1,5 @@
 # Статичный сайт — только раздача файлов, сборка не нужна.
-FROM nginx:1.30.5-alpine@sha256:985220252f3863977e468f611ef118ebd01421289dd86ee1ae99cb068c3bce2b
+FROM nginx:1.31.0-alpine@sha256:2f07d83bf561b506400dc183b1b2003803e39efbd22451f848adaba14d28c7c7
 
 LABEL org.opencontainers.image.title="Колесо фортуны" \
       org.opencontainers.image.description="Сайт-рандомайзер с настраиваемым списком" \
