@@ -1,4 +1,10 @@
-node_modules
-*.db
-*.db-wal
-*.db-shm
+**
+!Dockerfile
+!package.json
+!package-lock.json
+!server.js
+!lib.js
+!rollup.js
+!schema.sql
+!dashboard.html
+!dashboard.js

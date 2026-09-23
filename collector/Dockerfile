@@ -1,4 +1,4 @@
-FROM node:22-alpine
+FROM node:24-alpine@sha256:ebfe2f90462722a7a4de65e91990e97fe0d401c70e0e762c5b53302f905ec1c1 AS dependencies
 
 # better-sqlite3 собирается из исходников — нужны сборочные инструменты
 RUN apk add --no-cache python3 make g++
@@ -8,7 +8,15 @@ WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm ci --omit=dev && npm cache clean --force
 
-COPY server.js lib.js rollup.js schema.sql dashboard.html ./
+FROM node:24-alpine@sha256:ebfe2f90462722a7a4de65e91990e97fe0d401c70e0e762c5b53302f905ec1c1
+ENV NODE_ENV=production
+WORKDIR /app
+COPY --from=dependencies /app/node_modules ./node_modules
+COPY package.json server.js lib.js rollup.js schema.sql dashboard.html dashboard.js ./
+RUN mkdir -p /data && chown node:node /data \
+    && rm -rf /usr/local/lib/node_modules/npm /usr/local/lib/node_modules/corepack /opt/yarn-* \
+    && rm -f /usr/local/bin/npm /usr/local/bin/npx /usr/local/bin/corepack /usr/local/bin/yarn /usr/local/bin/yarnpkg
+USER node
 
 # Сюда монтируется том с базой
 VOLUME /data

@@ -11,7 +11,14 @@
 *.wav
 
 # Локальные переменные окружения
-.env
+.env*
+!.env.example
+*.db
+*.db-*
+*.sqlite*
+*.pem
+*.key
+backups/
 
 # Playwright
 node_modules/

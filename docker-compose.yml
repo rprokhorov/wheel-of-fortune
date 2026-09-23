@@ -1,21 +1,33 @@
 services:
   site:
-    image: ghcr.io/rprokhorov/wheel-of-fortune:${TAG:-latest}
+    image: ghcr.io/rprokhorov/wheel-of-fortune:${TAG:?укажите версионный TAG в .env}
     # Локальная сборка вместо готового образа: docker compose up --build
     build: .
     container_name: wheel-site
     restart: unless-stopped
     expose:
-      - "80"
+      - "8080"
+    read_only: true
+    tmpfs: ["/tmp:size=64m,mode=1777"]
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    pids_limit: 100
+    mem_limit: 128m
     networks: [wheel]
 
   collector:
-    image: ghcr.io/rprokhorov/wheel-collector:${TAG:-latest}
+    image: ghcr.io/rprokhorov/wheel-collector:${TAG:?укажите версионный TAG в .env}
     build: ./collector
     container_name: wheel-collector
     restart: unless-stopped
     expose:
       - "8081"
+    read_only: true
+    tmpfs: ["/tmp:size=64m,mode=1777"]
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    pids_limit: 100
+    mem_limit: 512m
     environment:
       # Постоянная соль для org_id. Менять нельзя: после смены
       # старые и новые события перестанут группироваться вместе.
@@ -25,6 +37,8 @@ services:
       # 0 — хранить IP бессрочно, чистка запускается вручную
       IP_RETENTION_DAYS: ${IP_RETENTION_DAYS:-0}
       DB_PATH: /data/analytics.db
+      TRUST_PROXY: "1"
+      SITE_ORIGIN: https://${SITE_DOMAIN:?укажите SITE_DOMAIN в .env}
     volumes:
       - analytics_data:/data
     networks: [wheel]
@@ -32,11 +46,17 @@ services:
   # Ночной пересчёт агрегатов. Отдельный контейнер вместо cron внутри
   # коллектора: так джоб не мешает приёму событий и его видно в логах.
   rollup:
-    image: ghcr.io/rprokhorov/wheel-collector:${TAG:-latest}
+    image: ghcr.io/rprokhorov/wheel-collector:${TAG:?укажите версионный TAG в .env}
     build: ./collector
     container_name: wheel-rollup
     restart: unless-stopped
     depends_on: [collector]
+    read_only: true
+    tmpfs: ["/tmp:size=64m,mode=1777"]
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    pids_limit: 100
+    mem_limit: 512m
     environment:
       DB_PATH: /data/analytics.db
       IP_RETENTION_DAYS: ${IP_RETENTION_DAYS:-0}
@@ -51,10 +71,18 @@ services:
     entrypoint: ["sh", "-c", "while true; do sleep $$(( ( (3*3600+20*60) - $$(date -u +%s) % 86400 + 86400 ) % 86400 )); node rollup.js; done"]
 
   caddy:
-    image: caddy:2-alpine
+    image: ghcr.io/rprokhorov/wheel-proxy:${TAG:?укажите версионный TAG в .env}
+    build: ./caddy
     container_name: wheel-caddy
     restart: unless-stopped
     depends_on: [site, collector]
+    read_only: true
+    tmpfs: ["/tmp:size=64m,mode=1777"]
+    cap_drop: [ALL]
+    cap_add: [NET_BIND_SERVICE]
+    security_opt: ["no-new-privileges:true"]
+    pids_limit: 100
+    mem_limit: 256m
     ports:
       - "80:80"
       - "443:443"

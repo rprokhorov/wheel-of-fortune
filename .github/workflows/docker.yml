@@ -6,8 +6,38 @@ on:
     tags: ['v*']
   workflow_dispatch:
 
+permissions:
+  contents: read
+
+concurrency:
+  group: publish-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
+  checks:
+    uses: ./.github/workflows/tests.yml
+
+  smoke:
+    needs: checks
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 24
+      - name: Собрать контейнеры и проверить HTTPS со временными данными
+        run: |
+          docker build -t wheel-site:security-audit .
+          docker build -t wheel-collector:security-audit collector
+          docker build -t wheel-proxy:security-audit caddy
+          node scripts/smoke-containers.mjs
+
   build:
+    needs: [checks, smoke]
+    timeout-minutes: 30
     runs-on: ${{ matrix.runner }}
     permissions:
       contents: read
@@ -20,13 +50,37 @@ jobs:
           - { image: wheel-of-fortune, context: ., arch: arm64, platform: linux/arm64, runner: ubuntu-24.04-arm }
           - { image: wheel-collector, context: ./collector, arch: amd64, platform: linux/amd64, runner: ubuntu-24.04 }
           - { image: wheel-collector, context: ./collector, arch: arm64, platform: linux/arm64, runner: ubuntu-24.04-arm }
+          - { image: wheel-proxy, context: ./caddy, arch: amd64, platform: linux/amd64, runner: ubuntu-24.04 }
+          - { image: wheel-proxy, context: ./caddy, arch: arm64, platform: linux/arm64, runner: ubuntu-24.04-arm }
 
     steps:
-      - uses: actions/checkout@v4
-      - uses: docker/setup-buildx-action@v3
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+
+      - name: Проверить версионный тег до публикации
+        if: startsWith(github.ref, 'refs/tags/')
+        run: node scripts/check-release.mjs "$GITHUB_REF_NAME"
+
+      - name: Собрать кандидат для проверки
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
+        with:
+          context: ${{ matrix.context }}
+          platforms: ${{ matrix.platform }}
+          load: true
+          tags: wheel-candidate:scan
+          cache-from: type=gha,scope=${{ matrix.image }}-${{ matrix.arch }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.image }}-${{ matrix.arch }}
+
+      - name: Проверить уязвимости образа до публикации
+        run: >-
+          docker run --rm -v /var/run/docker.sock:/var/run/docker.sock
+          aquasec/trivy@sha256:62b1e65e8869bc4b4c6aa4fa2b21595256c7c2f6018a9d9ad61caf87187c1969
+          image --scanners vuln --severity HIGH,CRITICAL --exit-code 1 wheel-candidate:scan
 
       - name: Вход в ghcr.io
-        uses: docker/login-action@v3
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -34,13 +88,15 @@ jobs:
 
       - name: Сборка для ${{ matrix.platform }}
         id: build
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
         with:
           context: ${{ matrix.context }}
           platforms: ${{ matrix.platform }}
           outputs: type=image,name=ghcr.io/${{ github.repository_owner }}/${{ matrix.image }},push-by-digest=true,name-canonical=true,push=true
           cache-from: type=gha,scope=${{ matrix.image }}-${{ matrix.arch }}
           cache-to: type=gha,mode=max,scope=${{ matrix.image }}-${{ matrix.arch }}
+          provenance: mode=max
+          sbom: true
 
       - name: Сохранить digest для манифеста
         env:
@@ -49,7 +105,7 @@ jobs:
           mkdir -p /tmp/digests
           touch "/tmp/digests/${DIGEST#sha256:}"
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: digests-${{ matrix.image }}-${{ matrix.arch }}
           path: /tmp/digests/*
@@ -62,18 +118,18 @@ jobs:
       packages: write
     strategy:
       matrix:
-        image: [wheel-of-fortune, wheel-collector]
+        image: [wheel-of-fortune, wheel-collector, wheel-proxy]
 
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           pattern: digests-${{ matrix.image }}-*
           path: /tmp/digests
           merge-multiple: true
-      - uses: docker/setup-buildx-action@v3
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
 
       - name: Вход в ghcr.io
-        uses: docker/login-action@v3
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -89,6 +145,19 @@ jobs:
             tags+=(-t "$image:latest")
           fi
           if [[ "$GITHUB_REF_TYPE" == tag ]]; then
+            # Повторный запуск не меняет уже опубликованный релизный образ.
+            lookup_error=$(mktemp)
+            if docker buildx imagetools inspect "$image:$GITHUB_REF_NAME" 2>"$lookup_error"; then
+              echo 'Релизный образ уже опубликован; сохраняем его digest.'
+              rm -f "$lookup_error"
+              exit 0
+            fi
+            if ! grep -qiE 'not found|manifest unknown' "$lookup_error"; then
+              cat "$lookup_error" >&2
+              rm -f "$lookup_error"
+              exit 1
+            fi
+            rm -f "$lookup_error"
             tags+=(-t "$image:$GITHUB_REF_NAME")
           fi
           cd /tmp/digests
@@ -105,7 +174,9 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
       - name: Создать релиз со ссылками на образы
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

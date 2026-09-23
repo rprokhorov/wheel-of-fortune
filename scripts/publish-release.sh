@@ -2,6 +2,7 @@
 set -euo pipefail
 
 tag=${1:?Укажите версионный тег}
+node scripts/check-release.mjs "$tag"
 repo=${GITHUB_REPOSITORY:-rprokhorov/wheel-of-fortune}
 owner=${repo%%/*}
 owner=${owner,,}
@@ -27,7 +28,8 @@ cat >> "$notes" <<EOF
 
 - [Сайт](https://github.com/$repo/pkgs/container/wheel-of-fortune): \`ghcr.io/$owner/wheel-of-fortune:$tag\`
 - [Коллектор](https://github.com/$repo/pkgs/container/wheel-collector): \`ghcr.io/$owner/wheel-collector:$tag\`
+- [HTTPS-прокси](https://github.com/$repo/pkgs/container/wheel-proxy): \`ghcr.io/$owner/wheel-proxy:$tag\`
 
-Оба образа доступны для amd64 и arm64.
+Все три образа доступны для amd64 и arm64.
 EOF
 gh release edit "$tag" --repo "$repo" --notes-file "$notes"

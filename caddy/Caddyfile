@@ -1,5 +1,6 @@
 {
 	email {$ACME_EMAIL}
+	admin off
 }
 
 {$SITE_DOMAIN} {
@@ -8,21 +9,36 @@
 	# Аналитика: свой домен, поэтому блокировщики рекламы запросы не режут.
 	# handle идёт до общего маршрута, иначе /api ушёл бы на статику.
 	handle /api/* {
-		reverse_proxy collector:8081
+		request_body {
+			max_size 65536
+		}
+		reverse_proxy collector:8081 {
+			header_up X-Real-IP {http.request.remote.host}
+		}
 	}
 
 	handle {
-		reverse_proxy site:80
+		reverse_proxy site:8080
 	}
 
 	header {
 		X-Content-Type-Options nosniff
-		X-Frame-Options SAMEORIGIN
-		Referrer-Policy strict-origin-when-cross-origin
+		X-Frame-Options DENY
+		Referrer-Policy no-referrer
+		Strict-Transport-Security "max-age=31536000"
+		Permissions-Policy "camera=(), microphone=(), geolocation=()"
+		Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data:; media-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'none'"
+		-Server
 	}
 
 	log {
 		output stdout
-		format console
+		format filter {
+			wrap json
+			fields {
+				request>uri delete
+				request>headers>Referer delete
+			}
+		}
 	}
 }
