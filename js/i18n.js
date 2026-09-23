@@ -1,8 +1,7 @@
 (() => {
   'use strict';
 
-  // Переводы интерфейса. Названия треков не переводятся —
-  // это имена собственные, одинаковые в обоих языках.
+  // Переводы интерфейса, включая подписи треков в выпадающем списке.
   const DICT = {
     ru: {
       'app.title': 'Колесо фортуны',
@@ -33,6 +32,9 @@
 
       'music.aria': 'Мелодия вращения',
       'music.none': 'Без музыки',
+      'music.kalambur': 'Деревня дураков',
+      'music.nupogodi': 'Ну, погоди!',
+      'music.benny': 'Шоу Бенни Хилла',
       'music.volume': 'Громкость',
       'music.note': 'Мелодия играет только во время вращения',
       'music.soundOn': 'Включить звуковые эффекты',
@@ -69,6 +71,7 @@
 
       'lang.switch': 'English',
       'lang.aria': 'Переключить язык',
+      'repo.aria': 'Исходный код проекта на GitHub',
 
       'defaults': ['Пицца', 'Суши', 'Бургер', 'Паста', 'Салат', 'Шаурма']
     },
@@ -102,6 +105,9 @@
 
       'music.aria': 'Spin soundtrack',
       'music.none': 'No music',
+      'music.kalambur': "Fool's Village",
+      'music.nupogodi': 'Well, Just You Wait!',
+      'music.benny': 'The Benny Hill Show',
       'music.volume': 'Volume',
       'music.note': 'Music plays only while the wheel spins',
       'music.soundOn': 'Turn sound effects on',
@@ -138,6 +144,7 @@
 
       'lang.switch': 'Русский',
       'lang.aria': 'Switch language',
+      'repo.aria': 'Project source code on GitHub',
 
       'defaults': ['Pizza', 'Sushi', 'Burger', 'Pasta', 'Salad', 'Tacos']
     }

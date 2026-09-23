@@ -88,11 +88,14 @@ button, label { -webkit-tap-highlight-color: transparent; }
 .cloud--one { top: 15%; left: 5%; transform: scale(0.8); }
 .cloud--two { top: 31%; right: 4%; transform: scale(0.58); opacity: 0.78; }
 
-.lang-switch {
+.repo-link, .lang-switch {
   position: absolute;
   z-index: 5;
   top: 14px;
-  right: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 36px;
   padding: 6px 14px;
   border: 2px solid #b6844d;
   border-radius: 20px;
@@ -102,11 +105,16 @@ button, label { -webkit-tap-highlight-color: transparent; }
   font-family: var(--font-body);
   font-weight: 600;
   font-size: 13px;
+  line-height: 1;
   box-shadow: 0 3px 0 rgba(110, 71, 38, .25);
   transition: transform 120ms ease;
 }
-.lang-switch:hover { transform: translateY(-2px); background: #ffe9a8; }
-.lang-switch:active { transform: translateY(1px); box-shadow: 0 1px 0 rgba(110, 71, 38, .25); }
+.repo-link { left: 0; text-decoration: none; }
+.repo-link svg { width: 17px; height: 17px; flex: none; }
+.lang-switch { right: 0; }
+.repo-link:hover, .lang-switch:hover { transform: translateY(-2px); background: #ffe9a8; }
+.repo-link:active, .lang-switch:active { transform: translateY(1px); box-shadow: 0 1px 0 rgba(110, 71, 38, .25); }
+.repo-link:focus-visible, .lang-switch:focus-visible { outline: 3px solid var(--red-dark); outline-offset: 3px; }
 
 /* --- Каркас страницы --- */
 .page-shell {
@@ -827,7 +835,7 @@ footer i { color: var(--red); font-style: normal; }
 }
 
 @media (max-width: 520px) {
-  .page-shell { width: calc(100% - 20px); padding: 22px 0 18px; }
+  .page-shell { width: calc(100% - 20px); padding: 64px 0 18px; }
   .game-card { padding: 26px 16px; border-radius: 20px; }
   .sun { width: 56px; height: 56px; }
   .spin-button { font-size: 21px; padding: 14px 18px; }

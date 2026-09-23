@@ -132,15 +132,21 @@ test.describe('Переключение языка', () => {
     await expect(page.locator('html')).toHaveAttribute('lang', 'en');
   });
 
-  test('имена треков не переводятся, «без музыки» переводится', async ({ page }) => {
-    await h.openApp(page, { lang: 'en' });
+  test('названия треков переводятся при переключении языка, выбранный трек сохраняется', async ({ page }) => {
+    await h.openApp(page, { lang: 'ru' });
+    await page.locator('#music').selectOption('nupogodi');
 
-    const labels = await page.locator('#music option').evaluateAll(
-      (els) => els.map((e) => e.textContent?.trim()));
+    const labels = () => page.locator('#music option').evaluateAll(
+      (options) => options.map((option) => option.textContent?.trim()));
+    expect(await labels()).toEqual(['Без музыки', 'Деревня дураков', 'Ну, погоди!', 'Шоу Бенни Хилла']);
 
-    expect(labels[0]).toBe('No music');
-    expect(labels).toContain('Деревня дураков');
-    expect(labels).toContain('Ну, погоди!');
+    await page.locator('#lang-switch').click();
+    expect(await labels()).toEqual(['No music', "Fool's Village", 'Well, Just You Wait!', 'The Benny Hill Show']);
+    await expect(page.locator('#music')).toHaveValue('nupogodi');
+
+    await page.locator('#lang-switch').click();
+    expect(await labels()).toEqual(['Без музыки', 'Деревня дураков', 'Ну, погоди!', 'Шоу Бенни Хилла']);
+    await expect(page.locator('#music')).toHaveValue('nupogodi');
   });
 
   test('переключение языка не ломает список и колесо', async ({ page }) => {

@@ -22,10 +22,10 @@
 
   // Треки: 20-секундные фрагменты, зацикливаются на всё время вращения.
   const TRACKS = {
-    none:     { name: null,                 src: null },   // подпись берётся из словаря
-    kalambur: { name: 'Деревня дураков',   src: 'music/kalambur.m4a' },
-    nupogodi: { name: 'Ну, погоди!',       src: 'music/nu-pogodi.m4a' },
-    benny:    { name: 'Шоу Бенни Хилла',   src: 'music/benny-hill.m4a' }
+    none:     { src: null },
+    kalambur: { src: 'music/kalambur.m4a' },
+    nupogodi: { src: 'music/nu-pogodi.m4a' },
+    benny:    { src: 'music/benny-hill.m4a' }
   };
 
   // ---------- Состояние ----------
@@ -543,11 +543,10 @@
   // ---------- Элементы управления ----------
   function buildMusicOptions() {
     musicSel.innerHTML = '';
-    Object.entries(TRACKS).forEach(([id, trackData]) => {
+    Object.keys(TRACKS).forEach((id) => {
       const opt = document.createElement('option');
       opt.value = id;
-      // Имена треков не переводятся — только подпись «Без музыки»
-      opt.textContent = trackData.name || t('music.none');
+      opt.textContent = t(`music.${id}`);
       musicSel.appendChild(opt);
     });
     musicSel.value = settings.music;
