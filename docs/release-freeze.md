@@ -82,9 +82,9 @@ docker compose up -d --force-recreate
 
 ```bash
 docker compose ps
-curl --fail --silent --show-error https://wheel.rprokhorov.ru/healthz
-curl --fail --silent --show-error https://wheel.rprokhorov.ru/api/health
-curl -s -o /dev/null -w '%{http_code}\n' https://wheel.rprokhorov.ru/api/stats
+curl --fail --silent --show-error https://wheel.example.com/healthz
+curl --fail --silent --show-error https://wheel.example.com/api/health
+curl -s -o /dev/null -w '%{http_code}\n' https://wheel.example.com/api/stats
 # Последняя команда должна вернуть 401.
 ```
 

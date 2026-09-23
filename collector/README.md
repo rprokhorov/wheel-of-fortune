@@ -103,8 +103,8 @@ API `/api/stats` и `/api/sessions` принимает общие парамет
 ### Поиск
 
 Поле над списком ищет по содержимому списков без учёта регистра (подстрока)
-и по началу IP, хеша сети, `visitor_id` или `session_id`. Например, `кос`
-найдёт «Костя» в вариантах списка.
+и по началу IP, хеша сети, `visitor_id` или `session_id`. Например, `пиц`
+найдёт «Пицца» в вариантах списка.
 
 IP, `visitor_id` и хеш сети в отчёте кликабельны: клик фильтрует по этому
 значению. Так из одной сессии за один шаг попадаешь во все визиты того же
@@ -122,11 +122,14 @@ IP, `visitor_id` и хеш сети в отчёте кликабельны: кл
 Фильтр применяется к сессии целиком: если совпало хотя бы одно событие,
 показывается весь визит, а не одно событие.
 
+Во всех примерах используются вымышленные данные, домен `wheel.example.com`
+и демонстрационный IP. Подставьте свой домен и имя пользователя панели.
+
 ```bash
-curl -u admin https://wheel.rprokhorov.ru/api/sessions
-curl -u admin -G --data-urlencode 'q=Костя' https://wheel.rprokhorov.ru/api/sessions
-curl -u admin 'https://wheel.rprokhorov.ru/api/sessions?ip=203.0.113.7'
-curl -u admin 'https://wheel.rprokhorov.ru/api/sessions?session=<session_id>'
+curl -u admin https://wheel.example.com/api/sessions
+curl -u admin -G --data-urlencode 'q=Пицца' https://wheel.example.com/api/sessions
+curl -u admin 'https://wheel.example.com/api/sessions?ip=203.0.113.7'
+curl -u admin 'https://wheel.example.com/api/sessions?session=<session_id>'
 ```
 
 В `curl` кириллицу нужно передавать через `--data-urlencode`, иначе запрос
@@ -194,7 +197,7 @@ docker compose exec collector node -e "
 docker compose logs -f collector
 docker compose exec collector node rollup.js            # досчитать вручную
 docker compose exec collector node rollup.js 2026-08-26 # пересчитать день
-curl -u admin 'https://wheel.rprokhorov.ru/api/stats?days=30'
+curl -u admin 'https://wheel.example.com/api/stats?days=30'
 ```
 
 Резервная копия базы (безопасно при работающем коллекторе):

@@ -109,7 +109,8 @@ Let's Encrypt). Наружу смотрит только Caddy, на порта�
 
 ### На VPS
 
-Требуется: DNS-запись `wheel.rprokhorov.ru` → IP этого VPS и открытые порты 80/443
+В примерах `wheel.example.com` — домен-заглушка, замените его своим.
+Требуется: DNS-запись `wheel.example.com` → IP этого VPS и открытые порты 80/443
 (порт 80 нужен Let's Encrypt для проверки владения доменом).
 
 ```bash
@@ -161,8 +162,8 @@ docker compose up -d --force-recreate
 ```bash
 docker compose ps
 docker compose logs -f caddy      # выпуск сертификата
-curl -I https://wheel.rprokhorov.ru/
-curl -s https://wheel.rprokhorov.ru/healthz
+curl -I https://wheel.example.com/
+curl -s https://wheel.example.com/healthz
 ```
 
 ### Локально
