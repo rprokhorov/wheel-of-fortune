@@ -116,11 +116,29 @@ docker compose up -d
 ```
 
 Образ подтягивается готовым из `ghcr.io` — собирать на сервере не нужно.
-Обновление после нового коммита в `main`:
+Прод использует версионный тег `TAG` в `.env` (например, `v1.6.0`).
+После успешных тестов и сборки `main` выпустите тег и дождитесь публикации
+обоих образов с этим тегом:
 
 ```bash
-docker compose pull && docker compose up -d
+git tag -a v1.6.0 -m 'Release v1.6.0'
+git push origin v1.6.0
 ```
+
+На VPS сделайте резервную копию базы и текущих образов, затем обновите `TAG`
+в `.env` и контейнеры:
+
+```bash
+git pull --ff-only
+docker compose pull site collector rollup
+docker compose up -d --no-deps site collector rollup
+```
+
+Для отката верните прежний `TAG` и повторите `docker compose up -d`.
+Не удаляйте том `analytics_data`: в нём находится база событий.
+
+Коммиты в `main` также публикуют `latest` и `sha-<commit>` для проверки,
+но прод закреплён за конкретным релизом.
 
 Проверка:
 
