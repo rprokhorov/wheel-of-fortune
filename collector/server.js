@@ -291,7 +291,7 @@ function analyticsScope(params) {
 
 function buildStats(params) {
   const scope = analyticsScope(params);
-  const q = (sql) => db.prepare(`${scope.cte} ${sql}`).all(...scope.args);
+  const q = (sql, ...extraArgs) => db.prepare(`${scope.cte} ${sql}`).all(...scope.args, ...extraArgs);
   const one = (sql) => db.prepare(`${scope.cte} ${sql}`).get(...scope.args);
 
   return {
@@ -333,13 +333,15 @@ function buildStats(params) {
     music: q(`
       SELECT json_extract(props, '$.music') AS value, COUNT(*) AS count
       FROM scoped WHERE name = 'spin_start'
+        AND (? IS NULL OR json_extract(props, '$.music') = ?)
       GROUP BY value ORDER BY count DESC
-    `),
+    `, scope.active.music || null, scope.active.music || null),
     decisions: q(`
       SELECT json_extract(props, '$.choice') AS value, COUNT(*) AS count
       FROM scoped WHERE name = 'decision'
+        AND (? IS NULL OR json_extract(props, '$.choice') = ?)
       GROUP BY value
-    `),
+    `, scope.active.decision || null, scope.active.decision || null),
     countries: q(`
       SELECT country AS value, COUNT(DISTINCT visitor_id) AS count
       FROM scoped WHERE country IS NOT NULL

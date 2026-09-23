@@ -7,7 +7,7 @@
   // пачками через sendBeacon.
 
   const ENDPOINT = '/api/e';
-  const APP_VERSION = '1.6.0';
+  const APP_VERSION = '1.6.1';
   const FLUSH_MS = 5000;
   const MAX_QUEUE = 40;
 
