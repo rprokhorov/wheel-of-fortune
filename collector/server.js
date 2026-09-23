@@ -24,9 +24,19 @@ const DB_PATH  = process.env.DB_PATH || '/data/analytics.db';
 const SALT     = process.env.ORG_SALT || '';
 const DASH_USER = process.env.DASH_USER || 'admin';
 const DASH_PASS = process.env.DASH_PASS || '';
+const TRUST_PROXY = process.env.TRUST_PROXY === '1';
+const SITE_ORIGIN = process.env.SITE_ORIGIN || '';
 
 if (!SALT) {
   console.error('ORG_SALT не задан. Без постоянной соли org_id несравним между запусками.');
+  process.exit(1);
+}
+if (SALT.startsWith('смените_') || DASH_PASS.startsWith('смените_')) {
+  console.error('Замените демонстрационные значения ORG_SALT и DASH_PASS.');
+  process.exit(1);
+}
+if (TRUST_PROXY && !/^https:\/\/[^/]+$/.test(SITE_ORIGIN)) {
+  console.error('За прокси требуется SITE_ORIGIN вида https://example.com.');
   process.exit(1);
 }
 
@@ -67,6 +77,7 @@ db.function('lower_ru', (s) => (s === null ? null : String(s).toLowerCase()));
 
 const DASHBOARD_HTML = fs.readFileSync(path.join(__dirname, 'dashboard.html'), 'utf8');
 const ECHARTS_JS = fs.readFileSync(require.resolve('echarts/dist/echarts.min.js'));
+const DASHBOARD_JS = fs.readFileSync(path.join(__dirname, 'dashboard.js'));
 
 const insertMany = db.transaction((rows) => {
   for (const row of rows) insert.run(row);
@@ -124,42 +135,75 @@ function normalize(ev, ctx) {
 
 // ---------- Простой rate-limit в памяти ----------
 // Защищает от случайного цикла в клиенте. IP здесь только в памяти.
-const hits = new Map();
-setInterval(() => hits.clear(), 60_000).unref();
-
-function rateLimited(ip) {
-  if (!ip) return false;
-  const n = (hits.get(ip) || 0) + 1;
-  hits.set(ip, n);
-  return n > 600;                 // 600 запросов в минуту с одного адреса
+function limiter(limit, totalLimit) {
+  const hits = new Map();
+  let total = 0;
+  setInterval(() => { hits.clear(); total = 0; }, 60_000).unref();
+  return ip => {
+    if (++total > totalLimit) return true;
+    const n = (hits.get(ip) || 0) + 1;
+    hits.set(ip, n);
+    return n > limit;
+  };
 }
+const eventLimited = limiter(600, 6000);
+const authLimited = limiter(30, 1000);
+const blockedAuth = new Set();
+setInterval(() => blockedAuth.clear(), 60_000).unref();
+const privatePaths = new Set(['/api/dashboard', '/api/dashboard/',
+  '/api/assets/echarts.min.js', '/api/assets/dashboard.js', '/api/sessions', '/api/stats']);
 
 // ---------- HTTP ----------
 const server = http.createServer((req, res) => {
-  const url = new URL(req.url, 'http://localhost');
-
   res.setHeader('Cache-Control', 'no-store');
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('X-Frame-Options', 'DENY');
+  res.setHeader('Referrer-Policy', 'no-referrer');
+  res.setHeader('Content-Security-Policy', "default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; base-uri 'none'; frame-ancestors 'none'; form-action 'none'");
+  const reply = (status, headers = {}) => { res.writeHead(status, headers); res.end(); };
+  let url;
+  try {
+    if (!req.url.startsWith('/') || req.url.startsWith('//')) return reply(400);
+    url = new URL(req.url, 'http://localhost');
+  } catch (_) { return reply(400); }
+  const ip = clientIp(req, TRUST_PROXY);
+  if (privatePaths.has(url.pathname)) {
+    if (blockedAuth.has(ip)) return reply(429, { 'Retry-After': '60' });
+    if (!checkAuth(req)) {
+      if (authLimited(ip)) {
+        if (blockedAuth.size < 1000) blockedAuth.add(ip);
+        return reply(429, { 'Retry-After': '60' });
+      }
+      return reply(401, { 'WWW-Authenticate': 'Basic realm="stats", charset="UTF-8"' });
+    }
+  }
+  if (url.pathname !== '/api/e' && !['GET', 'HEAD'].includes(req.method)) {
+    return reply(405, { Allow: 'GET, HEAD' });
+  }
 
   if (url.pathname === '/api/health') {
     res.writeHead(200, { 'Content-Type': 'text/plain' });
     return res.end('ok\n');
   }
 
-  if (url.pathname === '/api/e' && req.method === 'POST') {
-    const ip = clientIp(req);
-    if (rateLimited(ip)) {
-      res.writeHead(429);
-      return res.end();
+  if (url.pathname === '/api/e') {
+    if (req.method !== 'POST') return reply(405, { Allow: 'POST' });
+    if (eventLimited(ip)) return reply(429, { 'Retry-After': '60' });
+    const origin = SITE_ORIGIN || `http://${req.headers.host}`;
+    if (req.headers['sec-fetch-site'] === 'cross-site' ||
+        (req.headers.origin && req.headers.origin !== origin)) return reply(403);
+    if ((req.headers['content-type'] || '').split(';')[0].trim().toLowerCase() !== 'application/json') {
+      return reply(415);
     }
+    if (Number(req.headers['content-length']) > MAX_BODY) return reply(413, { Connection: 'close' });
 
     let size = 0;
     const chunks = [];
     req.on('data', (c) => {
       size += c.length;
       if (size > MAX_BODY) {
-        res.writeHead(413);
-        res.end();
-        req.destroy();
+        if (!res.writableEnded) reply(413, { Connection: 'close' });
+        chunks.length = 0;
         return;
       }
       chunks.push(c);
@@ -167,14 +211,13 @@ const server = http.createServer((req, res) => {
 
     req.on('end', () => {
       if (res.writableEnded) return;
-      // Отвечаем сразу: клиенту незачем ждать записи в базу.
-      res.writeHead(204);
-      res.end();
-
+      let body;
+      try { body = JSON.parse(Buffer.concat(chunks).toString('utf8')); }
+      catch (_) { return reply(400); }
+      if (!body || !Array.isArray(body.events)) return reply(400);
+      if (body.events.length > MAX_BATCH) return reply(413);
       try {
-        const body = JSON.parse(Buffer.concat(chunks).toString('utf8'));
-        const list = Array.isArray(body.events) ? body.events.slice(0, MAX_BATCH) : [];
-        if (!list.length) return;
+        const list = body.events;
 
         const geo = ip ? geoip.lookup(ip) : null;
         const ctx = {
@@ -189,48 +232,45 @@ const server = http.createServer((req, res) => {
 
         const rows = list.map((ev) => normalize(ev, ctx)).filter(Boolean);
         if (rows.length) insertMany(rows);
-      } catch (err) {
-        console.error('не удалось разобрать пачку:', err.message);
+        reply(204);
+      } catch (_) {
+        // Ошибки JSON/SQLite могут содержать пользовательские строки: не логируем их.
+        console.error('не удалось сохранить пачку событий');
+        reply(500);
       }
     });
+    req.on('error', () => { if (!res.writableEnded) reply(400); });
     return;
   }
 
   if (url.pathname === '/api/dashboard' || url.pathname === '/api/dashboard/') {
-    if (!checkAuth(req)) {
-      res.writeHead(401, { 'WWW-Authenticate': 'Basic realm="stats"' });
-      return res.end();
-    }
     res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
     return res.end(DASHBOARD_HTML);
   }
 
-  if (url.pathname === '/api/assets/echarts.min.js') {
-    if (!checkAuth(req)) {
-      res.writeHead(401, { 'WWW-Authenticate': 'Basic realm="stats"' });
-      return res.end();
-    }
+  if (url.pathname === '/api/assets/echarts.min.js' || url.pathname === '/api/assets/dashboard.js') {
     res.writeHead(200, { 'Content-Type': 'application/javascript; charset=utf-8' });
-    return res.end(ECHARTS_JS);
+    return res.end(url.pathname.endsWith('/dashboard.js') ? DASHBOARD_JS : ECHARTS_JS);
   }
 
   // Журнал сессий: список визитов и покадровая хронология одного из них
   if (url.pathname === '/api/sessions') {
-    if (!checkAuth(req)) {
-      res.writeHead(401, { 'WWW-Authenticate': 'Basic realm="stats"' });
-      return res.end();
-    }
-    res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
-    return res.end(JSON.stringify(buildSessions(url.searchParams), null, 2));
+    return respondJson(() => buildSessions(url.searchParams));
   }
 
   if (url.pathname === '/api/stats') {
-    if (!checkAuth(req)) {
-      res.writeHead(401, { 'WWW-Authenticate': 'Basic realm="stats"' });
-      return res.end();
+    return respondJson(() => buildStats(url.searchParams));
+  }
+
+  function respondJson(build) {
+    try {
+      const json = JSON.stringify(build());
+      res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
+      res.end(json);
+    } catch (_) {
+      console.error('не удалось построить отчёт');
+      reply(500);
     }
-    res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
-    return res.end(JSON.stringify(buildStats(url.searchParams), null, 2));
   }
 
   res.writeHead(404);
@@ -241,14 +281,20 @@ function checkAuth(req) {
   if (!DASH_PASS) return false;   // без пароля статистика закрыта
   const header = req.headers.authorization || '';
   if (!header.startsWith('Basic ')) return false;
-  const [user, pass] = Buffer.from(header.slice(6), 'base64').toString('utf8').split(':');
+  const credentials = Buffer.from(header.slice(6), 'base64').toString('utf8');
+  const separator = credentials.indexOf(':');
+  if (separator < 0) return false;
+  const user = credentials.slice(0, separator);
+  const pass = credentials.slice(separator + 1);
   // Сравнение постоянного времени, чтобы пароль нельзя было подобрать по таймингу
   const ok = (a, b) => {
     const ba = Buffer.from(String(a));
     const bb = Buffer.from(String(b));
     return ba.length === bb.length && crypto.timingSafeEqual(ba, bb);
   };
-  return ok(user, DASH_USER) && ok(pass, DASH_PASS);
+  const validUser = ok(user, DASH_USER);
+  const validPass = ok(pass, DASH_PASS);
+  return validUser && validPass;
 }
 
 // ---------- Сводка ----------
@@ -385,7 +431,7 @@ function buildSessions(params) {
   if (sid) {
     const rows = db.prepare(`
       SELECT ts, name, items_count, item_profile, items_text, props
-      FROM events WHERE session_id = ? ORDER BY id
+      FROM events WHERE session_id = ? ORDER BY id LIMIT 1001
     `).all(sid);
 
     const head = db.prepare(`
@@ -398,7 +444,8 @@ function buildSessions(params) {
     return {
       session_id: sid,
       meta: head,
-      events: rows.map((r) => {
+      truncated: rows.length > 1000,
+      events: rows.slice(0, 1000).map((r) => {
         const at = new Date(r.ts).getTime();
         const gap = prev === null ? 0 : Math.round((at - prev) / 1000);
         prev = at;
@@ -502,8 +549,13 @@ function buildSessions(params) {
   };
 }
 
+server.requestTimeout = 15_000;
+server.headersTimeout = 10_000;
+server.setTimeout(15_000, socket => socket.destroy());
+server.maxHeadersCount = 64;
+server.maxConnections = 256;
 server.listen(PORT, HOST, () => {
-  console.log(`коллектор слушает ${HOST}:${PORT}, база ${DB_PATH}`);
+  console.log(`коллектор слушает ${HOST}:${server.address().port}, база ${DB_PATH}`);
 });
 
 for (const sig of ['SIGTERM', 'SIGINT']) {

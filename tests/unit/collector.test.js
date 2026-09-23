@@ -41,11 +41,18 @@ test.describe('orgIdFrom', () => {
 test.describe('clientIp', () => {
   const req = (headers, remote) => ({ headers, socket: { remoteAddress: remote } });
 
-  test('берёт первый адрес из X-Forwarded-For', () => {
-    // Caddy добавляет свой адрес в конец, исходный клиент — первый
+  test('без доверенного прокси игнорирует переданный клиентом IP', () => {
     assert.equal(
-      lib.clientIp(req({ 'x-forwarded-for': '203.0.113.7, 10.0.0.1' }, '10.0.0.1')),
+      lib.clientIp(req({ 'x-forwarded-for': '203.0.113.7', 'x-real-ip': '203.0.113.7' }, '10.0.0.1')),
+      '10.0.0.1');
+  });
+
+  test('за доверенным прокси принимает только корректный X-Real-IP', () => {
+    assert.equal(
+      lib.clientIp(req({ 'x-real-ip': '203.0.113.7' }, '10.0.0.1'), true),
       '203.0.113.7');
+    assert.equal(lib.clientIp(req({ 'x-real-ip': 'bad' }, '10.0.0.1'), true), '10.0.0.1');
+    assert.equal(lib.clientIp(req({}, '::ffff:127.0.0.1')), '127.0.0.1');
   });
 
   test('падает обратно на адрес сокета', () => {

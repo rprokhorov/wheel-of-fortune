@@ -7,7 +7,7 @@
   // пачками через sendBeacon.
 
   const ENDPOINT = '/api/e';
-  const APP_VERSION = '1.6.2';
+  const APP_VERSION = '1.6.3';
   const FLUSH_MS = 5000;
   const MAX_QUEUE = 40;
 
@@ -32,8 +32,9 @@
           return (c === 'x' ? r : (r & 0x3) | 0x8).toString(16);
         }));
 
-  function persistentId(store, key) {
+  function persistentId(storeName, key) {
     try {
+      const store = window[storeName];
       let id = store.getItem(key);
       if (!id) { id = uuid(); store.setItem(key, id); }
       return id;
@@ -42,12 +43,12 @@
     }
   }
 
-  const visitorId = persistentId(localStorage, 'wof.visitor');
-  const sessionId = persistentId(sessionStorage, 'wof.session');
+  const visitorId = persistentId('localStorage', 'wof.visitor');
+  const sessionId = persistentId('sessionStorage', 'wof.session');
 
   // wheel_id — отпечаток «команды». Хешируем отсортированный список,
-  // чтобы перемешивание не порождало новую команду. Сами значения
-  // никуда не отправляются, только хеш.
+  // чтобы перемешивание не порождало новую команду. Сами значения отправляются отдельно в items_text
+  // в соответствии с уведомлением в футере.
   let wheelId = null;
 
   async function computeWheelId(items) {
@@ -68,9 +69,7 @@
     }
   }
 
-  // Признаки списка вместо самих строк: по ним видно, для чего
-  // используют колесо (имена, задачи, обеды), но ни одно настоящее
-  // имя на сервер не уезжает.
+  // Признаки списка дополняют items_text в текущем режиме аналитики.
   function profileItems(items) {
     if (!items || !items.length) return null;
     const lens = items.map((s) => String(s).trim().length);

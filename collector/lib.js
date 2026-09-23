@@ -5,6 +5,7 @@
 // без запуска HTTP-сервера и подключения к базе.
 
 const crypto = require('crypto');
+const { isIP } = require('net');
 
 // Белый список событий: всё, чего здесь нет, отбрасывается на входе,
 // поэтому случайная правка клиента не наполнит базу мусором.
@@ -60,14 +61,19 @@ function orgIdFrom(ip, salt) {
     .slice(0, 16);
 }
 
-/** IP клиента: Caddy проставляет X-Forwarded-For, первый адрес — исходный. */
-function clientIp(req) {
-  const xff = req && req.headers && req.headers['x-forwarded-for'];
-  if (typeof xff === 'string' && xff.length) {
-    const first = xff.split(',')[0].trim();
-    if (first) return first;
+/** За доверенным Caddy берём только перезаписанный им X-Real-IP.
+ * TRUST_PROXY допустим лишь в закрытой сети без прямого доступа к collector. */
+function clientIp(req, trustProxy = false) {
+  const normalize = value => {
+    if (typeof value !== 'string') return null;
+    const ip = value.replace(/^::ffff:/i, '');
+    return isIP(ip) ? ip : null;
+  };
+  if (trustProxy) {
+    const ip = normalize(req?.headers?.['x-real-ip']);
+    if (ip) return ip;
   }
-  return (req && req.socket && req.socket.remoteAddress) || null;
+  return normalize(req?.socket?.remoteAddress);
 }
 
 /** Грубый разбор UA: нужен класс браузера и ОС, не точная версия. */

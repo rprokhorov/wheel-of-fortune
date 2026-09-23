@@ -126,6 +126,7 @@
     q.set('music',    settings.music);
     q.set('volume',   String(settings.volume));
     q.set('sound',    settings.sound ? '1' : '0');
+    if (new URLSearchParams(location.search).get('analytics') === 'off') q.set('analytics', 'off');
     return q.toString();
   }
 
