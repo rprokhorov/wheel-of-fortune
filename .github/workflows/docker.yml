@@ -97,3 +97,16 @@ jobs:
           test "${#sources[@]}" -eq 2
           docker buildx imagetools create "${tags[@]}" "${sources[@]}"
           docker buildx imagetools inspect "$image:sha-${GITHUB_SHA::7}"
+
+  release:
+    needs: merge
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Создать релиз со ссылками на образы
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: bash scripts/publish-release.sh "$GITHUB_REF_NAME"
