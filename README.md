@@ -4,6 +4,8 @@
 Само колесо работает без сборки: чистые HTML/CSS/JS. Для аналитики
 используется отдельный коллектор на Node.js и SQLite.
 
+**Подготовка заморозки 1.6.3:** [аудит безопасности](docs/security-audit-2026-09-23.md), [выпуск и откат](docs/release-freeze.md), [политика безопасности](SECURITY.md).
+
 **Открыть приложение:** [wheel.rprokhorov.ru](https://wheel.rprokhorov.ru/)
 
 ![Главный экран колеса фортуны](docs/screenshots/wheel-desktop.png)
@@ -102,7 +104,8 @@ URL важнее сохранённого состояния: если пара�
 `rollup` (ночной пересчёт агрегатов) и `caddy` (реверс-прокси с TLS от
 Let's Encrypt). Наружу смотрит только Caddy, на портах 80 и 443.
 `site` использует образ `wheel-of-fortune`, а `collector` и `rollup` — один
-образ `wheel-collector` с разными командами запуска.
+образ `wheel-collector` с разными командами запуска. `caddy` использует
+`wheel-proxy`: собственную сборку Caddy со стандартными модулями и исправленными зависимостями.
 
 ### На VPS
 
@@ -115,17 +118,17 @@ cd wheel-of-fortune
 cp .env.example .env
 # В .env укажите домен, почту, уникальную ORG_SALT, DASH_PASS и TAG релиза.
 # Не оставляйте значения-заглушки из примера.
-docker compose pull site collector rollup
+docker compose pull
 docker compose up -d
 ```
 
-Образы сайта и коллектора подтягиваются готовыми из `ghcr.io` — собирать на
+Образы сайта, коллектора и HTTPS-прокси подтягиваются готовыми из `ghcr.io` — собирать на
 сервере не нужно.
-Прод использует версионный тег `TAG` в `.env` (например, `v1.6.2`).
+Прод использует версионный тег `TAG` в `.env` (после публикации — `v1.6.3`).
 Перед тегом добавьте `docs/releases/vX.Y.Z.md` с изменениями и проверками.
 После успешных тестов и сборки `main` выпустите тег и дождитесь публикации
-обоих образов с этим тегом. После сборки GitHub Actions создаст Release из
-этого файла и добавит ссылки на образы сайта и коллектора:
+трёх образов с этим тегом. После сборки GitHub Actions создаст Release из
+этого файла и добавит ссылки на все три образа:
 
 ```bash
 VERSION=vX.Y.Z # замените на новую версию
@@ -133,6 +136,7 @@ git tag -a "$VERSION" -m "Release $VERSION"
 git push origin "$VERSION"
 ```
 
+При переходе с 1.6.2 на 1.6.3 сначала выполните [разовую миграцию владельца тома](docs/release-freeze.md).
 На VPS сделайте резервную копию базы и текущих образов, затем обновите `TAG`
 в `.env` и контейнеры. Пример для следующего релиза:
 
@@ -142,11 +146,11 @@ git pull --ff-only
 mkdir -p ../wheel-backups
 cp -p .env "../wheel-backups/env.$(date -u +%Y%m%dT%H%M%SZ)"
 sed -i 's/^TAG=.*/TAG=vX.Y.Z/' .env # подставьте опубликованный тег
-docker compose pull site collector rollup
-docker compose up -d --no-deps site collector rollup
+docker compose pull
+docker compose up -d --force-recreate
 ```
 
-Для отката верните прежний `TAG` и повторите `docker compose up -d --no-deps site collector rollup`.
+Для отката верните прежний `TAG` и повторите `docker compose up -d --force-recreate`.
 Не удаляйте том `analytics_data`: в нём находится база событий.
 
 Коммиты в `main` также публикуют `latest` и `sha-<commit>` для проверки,
@@ -177,7 +181,7 @@ docker compose up --build         # соберёт образ из исходн�
 |---|---|
 | `SITE_DOMAIN` | домен для сертификата и маршрутизации Caddy |
 | `ACME_EMAIL`  | почта для уведомлений Let's Encrypt |
-| `TAG`         | тег образа из ghcr.io (`latest` или конкретный) |
+| `TAG`         | тег образа из ghcr.io (обязательная версия, например `v1.6.3`) |
 | `ORG_SALT` | постоянная соль для группировки событий по сети; после запуска не менять |
 | `DASH_USER` / `DASH_PASS` | учётные данные панели аналитики |
 | `IP_RETENTION_DAYS` | через сколько дней удалять IP из событий; `0` отключает очистку |
@@ -186,9 +190,10 @@ docker compose up --build         # соберёт образ из исходн�
 
 ## Сборка образа
 
-Workflow `.github/workflows/docker.yml` при каждом пуше в `main` собирает оба
+Workflow `.github/workflows/docker.yml` при каждом пуше в `main` собирает три
 образа для `linux/amd64` и `linux/arm64` и публикует их в
-`ghcr.io/rprokhorov/wheel-of-fortune` и `ghcr.io/rprokhorov/wheel-collector`
+`ghcr.io/rprokhorov/wheel-of-fortune`, `ghcr.io/rprokhorov/wheel-collector`
+и `ghcr.io/rprokhorov/wheel-proxy`
 с тегами `latest` и `sha-<короткий SHA>`. Теги вида `v*` дают одноимённые теги
 образов и GitHub Release с описанием из `docs/releases/`.
 
@@ -202,6 +207,8 @@ Workflow `.github/workflows/docker.yml` при каждом пуше в `main` �
 Анимации отключаются для тех, кто выставил в системе `prefers-reduced-motion`.
 
 ## Тесты
+
+Для локальной разработки требуется Node.js 24+.
 
 Два уровня: модульные и интеграционные проверки на Node.js, а также e2e в браузере.
 
@@ -241,6 +248,8 @@ npm run test:report   # HTML-отчёт после e2e
 | `tests/unit/profile.test.js` | признаки списка без раскрытия содержимого |
 | `tests/unit/collector.test.js` | хеш сети, разбор UA, нормализация событий |
 | `tests/unit/analytics-filters.test.js` | фильтры API при разных мелодиях и решениях в одной сессии |
+
+CI также проверяет npm-зависимости, секреты, HTTPS в изолированном Compose и HIGH/CRITICAL-уязвимости контейнеров. Публикация зависит от этих проверок.
 
 CI прогоняет и то, и другое при каждом пуше в `main` и при pull request —
 `.github/workflows/tests.yml`. Юниты идут первыми: они дешёвые,
