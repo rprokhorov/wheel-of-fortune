@@ -19,6 +19,7 @@ const {
 } = require('./lib.js');
 
 const PORT     = Number(process.env.PORT || 8081);
+const HOST     = process.env.HOST || '0.0.0.0';
 const DB_PATH  = process.env.DB_PATH || '/data/analytics.db';
 const SALT     = process.env.ORG_SALT || '';
 const DASH_USER = process.env.DASH_USER || 'admin';
@@ -65,6 +66,7 @@ const insert = db.prepare(`
 db.function('lower_ru', (s) => (s === null ? null : String(s).toLowerCase()));
 
 const DASHBOARD_HTML = fs.readFileSync(path.join(__dirname, 'dashboard.html'), 'utf8');
+const ECHARTS_JS = fs.readFileSync(require.resolve('echarts/dist/echarts.min.js'));
 
 const insertMany = db.transaction((rows) => {
   for (const row of rows) insert.run(row);
@@ -203,6 +205,15 @@ const server = http.createServer((req, res) => {
     return res.end(DASHBOARD_HTML);
   }
 
+  if (url.pathname === '/api/assets/echarts.min.js') {
+    if (!checkAuth(req)) {
+      res.writeHead(401, { 'WWW-Authenticate': 'Basic realm="stats"' });
+      return res.end();
+    }
+    res.writeHead(200, { 'Content-Type': 'application/javascript; charset=utf-8' });
+    return res.end(ECHARTS_JS);
+  }
+
   // Журнал сессий: список визитов и покадровая хронология одного из них
   if (url.pathname === '/api/sessions') {
     if (!checkAuth(req)) {
@@ -241,15 +252,55 @@ function checkAuth(req) {
 }
 
 // ---------- Сводка ----------
-function buildStats(params) {
+function analyticsScope(params) {
   const days = clampInt(params.get('days'), 1, 365) || 30;
-  const since = new Date(Date.now() - days * 86400_000).toISOString().slice(0, 10);
-  const q = (sql, ...args) => db.prepare(sql).all(...args);
+  const today = new Date().toISOString().slice(0, 10);
+  const defaultFrom = new Date(Date.now() - (days - 1) * 86400_000).toISOString().slice(0, 10);
+  const validDate = (value) => /^\d{4}-\d{2}-\d{2}$/.test(value || '') &&
+    !Number.isNaN(Date.parse(value)) && new Date(value).toISOString().slice(0, 10) === value;
+  const from = validDate(params.get('from')) ? params.get('from') : defaultFrom;
+  const to = validDate(params.get('to')) ? params.get('to') : today;
+  const start = from <= to ? from : to;
+  const end = from <= to ? to : from;
+  const filters = ['e.day BETWEEN ? AND ?'];
+  const args = [start, end];
+  const category = [
+    ['country', 'e.country = ?', null],
+    ['action', `EXISTS (SELECT 1 FROM events x WHERE x.session_id = e.session_id
+      AND x.day BETWEEN ? AND ? AND x.name = ?)`,
+      ['page_view', 'spin_start', 'items_changed', 'link_copied']],
+    ['music', `EXISTS (SELECT 1 FROM events x WHERE x.session_id = e.session_id
+      AND x.day BETWEEN ? AND ? AND x.name = 'spin_start'
+      AND json_extract(x.props, '$.music') = ?)`, ['kalambur', 'nupogodi', 'benny', 'none']],
+    ['decision', `EXISTS (SELECT 1 FROM events x WHERE x.session_id = e.session_id
+      AND x.day BETWEEN ? AND ? AND x.name = 'decision'
+      AND json_extract(x.props, '$.choice') = ?)`, ['remove', 'keep']]
+  ];
+  const active = {};
+  for (const [key, sql, allowed] of category) {
+    const value = (params.get(key) || '').trim();
+    if (!value || value.length > 50 || (allowed && !allowed.includes(value))) continue;
+    active[key] = value;
+    filters.push(sql);
+    if (key === 'country') args.push(value);
+    else args.push(start, end, value);
+  }
+  return { from: start, to: end, days, active,
+    cte: `WITH scoped AS (SELECT e.* FROM events e WHERE ${filters.join(' AND ')})`, args };
+}
+
+function buildStats(params) {
+  const scope = analyticsScope(params);
+  const q = (sql) => db.prepare(`${scope.cte} ${sql}`).all(...scope.args);
+  const one = (sql) => db.prepare(`${scope.cte} ${sql}`).get(...scope.args);
 
   return {
-    period_days: days,
-    since,
-    totals: db.prepare(`
+    period_days: scope.days,
+    since: scope.from,
+    from: scope.from,
+    to: scope.to,
+    filters: scope.active,
+    totals: one(`
       SELECT
         COUNT(DISTINCT visitor_id) AS visitors,
         COUNT(DISTINCT session_id) AS sessions,
@@ -259,34 +310,41 @@ function buildStats(params) {
         SUM(name = 'spin_complete')  AS spins,
         SUM(name = 'link_copied')    AS links_copied,
         SUM(is_invited = 1 AND name = 'page_view') AS invited_visits
-      FROM events WHERE day >= ?
-    `).get(since),
+      FROM scoped
+    `),
     // Отдельно, потому что это доля посетителей, а не число событий
-    items_changed_visitors: db.prepare(`
+    items_changed_visitors: one(`
       SELECT COUNT(DISTINCT visitor_id) AS n
-      FROM events WHERE name = 'items_changed' AND day >= ?
-    `).get(since).n,
+      FROM scoped WHERE name = 'items_changed'
+    `).n,
+    activity: one(`
+      SELECT COUNT(DISTINCT CASE WHEN name = 'page_view' THEN session_id END) AS visits,
+             COUNT(DISTINCT CASE WHEN name = 'spin_start' THEN session_id END) AS spun,
+             COUNT(DISTINCT CASE WHEN name = 'items_changed' THEN session_id END) AS edited,
+             COUNT(DISTINCT CASE WHEN name = 'link_copied' THEN session_id END) AS shared
+      FROM scoped
+    `),
     by_day: q(`
       SELECT day,
              COUNT(DISTINCT visitor_id) AS visitors,
              SUM(name = 'spin_complete') AS spins
-      FROM events WHERE day >= ? GROUP BY day ORDER BY day
-    `, since),
+      FROM scoped GROUP BY day ORDER BY day
+    `),
     music: q(`
       SELECT json_extract(props, '$.music') AS value, COUNT(*) AS count
-      FROM events WHERE name = 'spin_start' AND day >= ?
+      FROM scoped WHERE name = 'spin_start'
       GROUP BY value ORDER BY count DESC
-    `, since),
+    `),
     decisions: q(`
       SELECT json_extract(props, '$.choice') AS value, COUNT(*) AS count
-      FROM events WHERE name = 'decision' AND day >= ?
+      FROM scoped WHERE name = 'decision'
       GROUP BY value
-    `, since),
+    `),
     countries: q(`
       SELECT country AS value, COUNT(DISTINCT visitor_id) AS count
-      FROM events WHERE day >= ? AND country IS NOT NULL
+      FROM scoped WHERE country IS NOT NULL
       GROUP BY country ORDER BY count DESC LIMIT 30
-    `, since),
+    `),
     item_profiles: q(`
       SELECT
         SUM(json_extract(item_profile, '$.looks_like_names') = 1) AS looks_like_names,
@@ -294,25 +352,25 @@ function buildStats(params) {
         ROUND(AVG(json_extract(item_profile, '$.len_avg')), 1)     AS avg_len,
         ROUND(AVG(json_extract(item_profile, '$.pct_cyrillic')), 0) AS pct_cyrillic,
         ROUND(AVG(json_extract(item_profile, '$.pct_emoji')), 0)    AS pct_emoji
-      FROM events
-      WHERE name = 'page_view' AND item_profile IS NOT NULL AND day >= ?
-    `, since),
+      FROM scoped
+      WHERE name = 'page_view' AND item_profile IS NOT NULL
+    `),
     top_items: q(`
       SELECT items_text AS value, COUNT(DISTINCT session_id) AS sessions
-      FROM events
-      WHERE items_text IS NOT NULL AND day >= ?
+      FROM scoped
+      WHERE items_text IS NOT NULL
       GROUP BY items_text ORDER BY sessions DESC LIMIT 25
-    `, since),
+    `),
     top_orgs: q(`
       SELECT org_id AS value,
              MAX(ip) AS ip,
              MAX(country) AS country,
              COUNT(DISTINCT visitor_id) AS visitors,
              SUM(name = 'spin_complete') AS spins
-      FROM events WHERE day >= ? AND org_id IS NOT NULL
+      FROM scoped WHERE org_id IS NOT NULL
       GROUP BY org_id HAVING visitors > 1
       ORDER BY spins DESC LIMIT 20
-    `, since)
+    `)
   };
 }
 
@@ -386,13 +444,18 @@ function buildSessions(params) {
 
   // Фильтр применяем к сессии целиком: если событие подошло,
   // показываем весь визит, а не одно совпавшее событие.
-  const where = filters.length
-    ? `WHERE session_id IN (SELECT session_id FROM events WHERE ${filters.join(' AND ')})`
-    : '';
+  const scopeEnabled = ['days', 'from', 'to', 'country', 'action', 'music', 'decision']
+    .some((key) => params.has(key));
+  const scope = scopeEnabled ? analyticsScope(params) : null;
+  const clauses = [];
+  if (scope) clauses.push('session_id IN (SELECT session_id FROM scoped)');
+  if (filters.length) clauses.push(`session_id IN (SELECT session_id FROM events WHERE ${filters.join(' AND ')})`);
+  const where = clauses.length ? `WHERE ${clauses.join(' AND ')}` : '';
 
   const limit = clampInt(params.get('limit'), 1, 200) || 50;
 
   const sessions = db.prepare(`
+    ${scope ? scope.cte : ''}
     SELECT
       session_id,
       MIN(ts) AS started_at,
@@ -424,7 +487,7 @@ function buildSessions(params) {
     GROUP BY session_id
     ORDER BY started_at DESC
     LIMIT ?
-  `).all(...args, limit);
+  `).all(...(scope ? scope.args : []), ...args, limit);
 
   return {
     count: sessions.length,
@@ -437,8 +500,8 @@ function buildSessions(params) {
   };
 }
 
-server.listen(PORT, () => {
-  console.log(`коллектор слушает :${PORT}, база ${DB_PATH}`);
+server.listen(PORT, HOST, () => {
+  console.log(`коллектор слушает ${HOST}:${PORT}, база ${DB_PATH}`);
 });
 
 for (const sig of ['SIGTERM', 'SIGINT']) {

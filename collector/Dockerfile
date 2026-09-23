@@ -5,8 +5,8 @@ RUN apk add --no-cache python3 make g++
 
 WORKDIR /app
 
-COPY package.json ./
-RUN npm install --omit=dev && npm cache clean --force
+COPY package.json package-lock.json ./
+RUN npm ci --omit=dev && npm cache clean --force
 
 COPY server.js lib.js rollup.js schema.sql dashboard.html ./
 

@@ -30,6 +30,23 @@
     padding: 7px 11px; border: 1px solid var(--line); border-radius: 9px;
     background: var(--panel); color: var(--ink); font-size: 14px; cursor: pointer;
   }
+  .controls { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .controls label { font-size: 12px; color: var(--muted); }
+  .controls input { padding: 6px 9px; border: 1px solid var(--line); border-radius: 9px;
+    background: var(--panel); color: var(--ink); font: inherit; }
+  .active-filters { display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+    margin: -5px 0 17px; min-height: 25px; font-size: 12px; color: var(--muted); }
+  .active-filters button, .bar-choice { border: 0; cursor: pointer; font: inherit; }
+  .active-filters button { padding: 5px 9px; border-radius: 16px; background: #dbeef1; color: #235c66; }
+  .active-filters .reset { background: #efe9dd; color: var(--ink); }
+  .bar-choice { background: transparent; color: var(--ink); text-align: left; padding: 3px 0;
+    text-decoration: underline dotted; text-underline-offset: 3px; }
+  .bar-choice:hover, .bar-choice[aria-pressed="true"] { color: #a92227; }
+  .bar-choice[aria-pressed="true"] { font-weight: 700; }
+  .chart { width: 100%; height: 280px; }
+  .chart--small { height: 230px; }
+  .chart--trend { height: 340px; }
+  .chart-hint { color: var(--muted); font-size: 12px; margin: 0 0 8px; }
 
   .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(168px, 1fr)); gap: 12px; margin-bottom: 22px; }
   .card {
@@ -39,9 +56,11 @@
   .card span { display: block; margin-top: 3px; font-size: 12px; color: var(--muted); }
   .card i { font-style: normal; font-size: 12px; color: var(--green); }
 
-  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(330px, 1fr)); gap: 16px; }
+  .grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+  @media (max-width: 720px) { .grid { grid-template-columns: minmax(0, 1fr); } }
   .panel { padding: 17px 18px; border: 1px solid var(--line); border-radius: 13px; background: var(--panel); }
   .panel--wide { grid-column: 1 / -1; }
+  #day-table, #top-items, #org-table { max-width: 100%; overflow-x: auto; }
 
   table { width: 100%; border-collapse: collapse; font-size: 13px; }
   th, td { padding: 6px 4px; text-align: left; border-bottom: 1px solid var(--line); }
@@ -66,9 +85,6 @@
     display: inline-block; width: 11px; height: 11px;
     border-radius: 3px; margin-right: 5px; vertical-align: -1px;
   }
-
-  /* При длинном периоде столбцы не сжимаются в кашу, а уезжают в прокрутку */
-  .chart-scroll { overflow-x: auto; padding-bottom: 4px; }
 
   .day-table { margin-top: 14px; }
   .day-table summary {
@@ -137,24 +153,56 @@
 <div class="wrap">
   <header>
     <h1>🎡 Метрики «Колеса фортуны»</h1>
-    <select id="period">
+    <div class="controls">
+    <select id="period" aria-label="Период">
       <option value="7">7 дней</option>
       <option value="30" selected>30 дней</option>
       <option value="90">90 дней</option>
       <option value="365">год</option>
+      <option value="custom">Свой период</option>
     </select>
+    <label>С <input id="date-from" type="date" aria-label="Начало периода"></label>
+    <label>По <input id="date-to" type="date" aria-label="Конец периода"></label>
+    </div>
   </header>
 
   <div class="tabs">
     <button id="tab-metrics" class="on">Метрики</button>
     <button id="tab-sessions">Сессии</button>
   </div>
+  <div id="active-filters" class="active-filters" aria-live="polite"></div>
 
-  <div id="root"><p class="empty">Загружаю…</p></div>
+  <div id="metrics-view">
+    <p id="metric-status" class="empty">Загружаю…</p>
+    <div class="cards">
+      <div class="card"><b id="stat-visitors">0</b><span>Посетители</span><i>уникальных браузеров</i></div>
+      <div class="card"><b id="stat-wheels">0</b><span>Команды</span><i>уникальных списков</i></div>
+      <div class="card"><b id="stat-orgs">0</b><span>Организации</span><i>групп по сети</i></div>
+      <div class="card"><b id="stat-spins">0</b><span>Розыгрыши</span><i>доведено до конца</i></div>
+      <div class="card"><b id="stat-shares">0</b><span>Поделились</span><i id="share-hint">0% сессий</i></div>
+      <div class="card"><b id="stat-invited">0</b><span>Пришли по ссылке</span><i id="invited-hint">0% визитов</i></div>
+    </div>
+    <div class="grid">
+      <div class="panel panel--wide">
+        <h2>Динамика по дням</h2>
+        <p class="chart-hint">Масштабируйте период ползунком под графиком: остальные блоки обновятся вместе с ним.</p>
+        <div id="trend-chart" class="chart chart--trend" role="img" aria-label="Динамика посетителей и розыгрышей"></div>
+        <div id="day-table"></div>
+      </div>
+      <div class="panel"><h2>Действия по сессиям</h2><div id="activity-chart" class="chart chart--small"></div></div>
+      <div class="panel"><h2>Музыка при вращении</h2><div id="music-chart" class="chart chart--small"></div></div>
+      <div class="panel"><h2>Решение после розыгрыша</h2><div id="decision-chart" class="chart chart--small"></div></div>
+      <div class="panel"><h2>Страны</h2><div id="country-chart" class="chart chart--small"></div></div>
+      <div class="panel panel--wide"><h2>Какие списки крутят</h2><div id="top-items"></div></div>
+      <div class="panel panel--wide"><h2>Организации с несколькими участниками</h2><div id="org-table"></div></div>
+    </div>
+  </div>
+  <div id="sessions-view" hidden></div>
 
-  <footer>Данные обезличены: содержимое списков не собирается, только количество и хеш.</footer>
+  <footer>Идентификаторы браузеров и сетей обезличены; в тестовом режиме варианты из колеса сохраняются.</footer>
 </div>
 
+<script src="/api/assets/echarts.min.js"></script>
 <script>
 'use strict';
 
@@ -170,105 +218,195 @@ const TRACK_NAMES = {
   benny: 'Шоу Бенни Хилла',
   none: 'Без музыки'
 };
+const filters = { days: '30', from: '', to: '', action: '', music: '', decision: '', country: '' };
+let metricRequest = 0;
+let metricsReady = false;
+const filterNames = { action: 'Действие', music: 'Музыка', decision: 'Решение', country: 'Страна' };
+const decisionNames = { remove: 'Удалить победителя', keep: 'Оставить' };
+const actionNames = { page_view: 'Визиты', spin_start: 'Покрутили',
+  items_changed: 'Меняли список', link_copied: 'Скопировали ссылку' };
+const dateLabel = (day) => day ? day.split('-').reverse().join('.') : '';
 
-async function load() {
-  const days = $('period').value;
-  const root = $('root');
+function queryFilters() {
+  return new URLSearchParams(Object.entries(filters).filter(([, value]) => value));
+}
+
+function updateControls() {
+  $('date-from').value = filters.from;
+  $('date-to').value = filters.to;
+  $('period').value = filters.from || filters.to ? 'custom' : filters.days;
+  const active = Object.entries(filterNames).filter(([key]) => filters[key]);
+  const period = filters.from || filters.to
+    ? `Период: ${dateLabel(filters.from) || 'начало'} — ${dateLabel(filters.to) || 'сегодня'}` : '';
+  $('active-filters').innerHTML = `
+    <span>${period || 'Выделите дни на графике или выберите категорию в таблице'}</span>
+    ${active.map(([key, label]) => `<button data-remove="${key}"
+      title="Убрать фильтр">${label}: ${esc(key === 'music' ? TRACK_NAMES[filters[key]] :
+        key === 'decision' ? decisionNames[filters[key]] :
+          key === 'action' ? actionNames[filters[key]] : filters[key])} ×</button>`).join('')}
+    ${(active.length || period) ? '<button class="reset" id="reset-filters">Сбросить всё</button>' : ''}
+    ${active.length ? '<span>Показаны сессии с выбранным действием; другие графики учитывают все действия этих сессий.</span>' : ''}`;
+  document.querySelectorAll('[data-remove]').forEach((button) => {
+    button.onclick = () => { filters[button.dataset.remove] = ''; refresh(); };
+  });
+  if ($('reset-filters')) $('reset-filters').onclick = () => {
+    Object.assign(filters, { days: '30', from: '', to: '', action: '', music: '', decision: '', country: '' });
+    sessionFilter = {};
+    refresh();
+  };
+}
+
+function refresh() {
+  updateControls();
+  if (tab === 'metrics') load(); else loadSessions(sessionFilter);
+}
+
+async function load(updateTrend = true) {
+  const request = ++metricRequest;
+  if (!metricsReady) {
+    $('metric-status').hidden = false;
+    $('metric-status').textContent = 'Загружаю данные…';
+  }
   try {
-    const res = await fetch(`/api/stats?days=${days}`, { credentials: 'same-origin' });
-    if (!res.ok) throw new Error('HTTP ' + res.status);
-    render(await res.json());
+    const trendParams = new URLSearchParams({ days: filters.days });
+    for (const key of ['action', 'music', 'decision', 'country'])
+      if (filters[key]) trendParams.set(key, filters[key]);
+    const requests = [fetch(`/api/stats?${queryFilters()}`, { credentials: 'same-origin' })];
+    if (updateTrend) requests.push(fetch(`/api/stats?${trendParams}`, { credentials: 'same-origin' }));
+    const responses = await Promise.all(requests);
+    if (responses.some((response) => !response.ok)) throw new Error('Не удалось получить метрики');
+    const data = await responses[0].json();
+    const trend = updateTrend ? await responses[1].json() : null;
+    if (request === metricRequest) {
+      render(data, trend, updateTrend);
+      metricsReady = true;
+    }
   } catch (err) {
-    root.innerHTML = `<div class="err">Не удалось загрузить данные: ${esc(err.message)}</div>`;
+    if (request === metricRequest) {
+      $('metric-status').hidden = false;
+      $('metric-status').textContent = `Не удалось загрузить данные: ${err.message}`;
+    }
   }
 }
 
-function render(d) {
-  const t = d.totals || {};
-  const spins = t.spins || 0;
-  const views = t.page_views || 0;
+const charts = {};
+let trendRows = [];
+let suppressZoom = false;
+let zoomTimer = null;
 
-  // Воронка: визит → покрутил → настроил под себя → поделился
-  const funnel = [
-    ['Визиты', views],
-    ['Покрутили', spins],
-    ['Меняли список', d.items_changed_visitors || 0],
-    ['Скопировали ссылку', t.links_copied || 0]
-  ];
+function initCharts() {
+  if (!window.echarts) throw new Error('Библиотека графиков не загрузилась');
+  for (const [key, id] of Object.entries({
+    trend: 'trend-chart', activity: 'activity-chart', music: 'music-chart',
+    decision: 'decision-chart', country: 'country-chart'
+  })) charts[key] = echarts.init($(id), null, { renderer: 'svg' });
 
-  const cards = [
-    ['Посетители', num(t.visitors), 'уникальных браузеров'],
-    ['Команды', num(t.wheels), 'уникальных списков'],
-    ['Организации', num(t.orgs), 'групп по сети'],
-    ['Розыгрыши', num(spins), 'доведено до конца'],
-    ['Поделились', num(t.links_copied), pct(t.links_copied, t.visitors) + ' от посетителей'],
-    ['Пришли по ссылке', num(t.invited_visits), pct(t.invited_visits, views) + ' визитов']
-  ];
+  charts.trend.on('datazoom', () => {
+    if (suppressZoom || !trendRows.length) return;
+    clearTimeout(zoomTimer);
+    zoomTimer = setTimeout(() => {
+      const zoom = charts.trend.getOption().dataZoom[0];
+      const index = (percent) => Math.max(0, Math.min(trendRows.length - 1,
+        Math.round((percent / 100) * (trendRows.length - 1))));
+      filters.from = trendRows[index(zoom.start)].day;
+      filters.to = trendRows[index(zoom.end)].day;
+      updateControls();
+      load(false);
+    }, 250);
+  });
 
-  $('root').innerHTML = `
-    <div class="cards">
-      ${cards.map(([label, value, hint]) => `
-        <div class="card"><b>${value}</b><span>${label}</span><i>${esc(hint)}</i></div>
-      `).join('')}
-    </div>
-
-    <div class="grid">
-      <div class="panel panel--wide">
-        <h2>Динамика по дням</h2>
-        ${sparkline(d.by_day || [])}
-      </div>
-
-      <div class="panel">
-        <h2>Воронка</h2>
-        ${funnel.map(([label, value]) => `
-          <div class="funnel-step">
-            <span class="label">${label}</span>
-            <span class="track"><span class="fill" style="width:${views ? Math.min(100, (value / views) * 100) : 0}%"></span></span>
-            <span class="val">${num(value)} · ${pct(value, views)}</span>
-          </div>
-        `).join('')}
-      </div>
-
-      <div class="panel">
-        <h2>Музыка при вращении</h2>
-        ${barTable(d.music || [], (v) => TRACK_NAMES[v] || v)}
-      </div>
-
-      <div class="panel">
-        <h2>Решение после розыгрыша</h2>
-        ${barTable((d.decisions || []).map((r) => ({
-          value: r.value === 'remove' ? 'Удалить победителя' : 'Оставить',
-          count: r.count
-        })))}
-      </div>
-
-      <div class="panel">
-        <h2>Страны</h2>
-        ${barTable(d.countries || [])}
-      </div>
-
-      <div class="panel panel--wide">
-        <h2>Какие списки крутят</h2>
-        ${topItems(d.top_items || [])}
-      </div>
-
-      <div class="panel panel--wide">
-        <h2>Организации с несколькими участниками</h2>
-        ${orgTable(d.top_orgs || [])}
-      </div>
-    </div>
-  `;
+  for (const key of ['activity', 'music', 'decision', 'country']) {
+    charts[key].on('click', (event) => {
+      if (!event.data || !event.data.raw) return;
+      const filterKey = key === 'activity' ? 'action' : key;
+      filters[filterKey] = filters[filterKey] === event.data.raw ? '' : event.data.raw;
+      refresh();
+    });
+  }
+  window.addEventListener('resize', () => Object.values(charts).forEach((chart) => chart.resize()));
 }
 
-function barTable(rows, labelFn) {
-  if (!rows.length) return '<p class="empty">Пока нет данных</p>';
-  const max = Math.max(...rows.map((r) => r.count || 0), 1);
-  return `<table>${rows.map((r) => `
-    <tr>
-      <td>${esc(labelFn ? labelFn(r.value) : r.value)}</td>
-      <td style="width:45%"><div class="bar" style="width:${((r.count || 0) / max) * 100}%"></div></td>
-      <td class="num">${num(r.count)}</td>
-    </tr>`).join('')}</table>`;
+function render(d, trend, updateTrend) {
+  const t = d.totals || {};
+  const activity = d.activity || {};
+  for (const [id, value] of Object.entries({
+    'stat-visitors': t.visitors, 'stat-wheels': t.wheels, 'stat-orgs': t.orgs,
+    'stat-spins': t.spins, 'stat-shares': t.links_copied,
+    'stat-invited': t.invited_visits
+  })) $(id).textContent = num(value);
+  $('share-hint').textContent = pct(activity.shared, activity.visits) + ' сессий';
+  $('invited-hint').textContent = pct(t.invited_visits, t.page_views) + ' визитов';
+  $('metric-status').hidden = true;
+
+  if (updateTrend) renderTrend(trend.by_day || []);
+  renderCategory(charts.activity, [
+    { value: 'page_view', count: activity.visits || 0 },
+    { value: 'spin_start', count: activity.spun || 0 },
+    { value: 'items_changed', count: activity.edited || 0 },
+    { value: 'link_copied', count: activity.shared || 0 }
+  ].filter((row) => !filters.action || row.value === filters.action),
+  (value) => actionNames[value] || value, 'action', '#f7bd36');
+  renderCategory(charts.music, (d.music || []).filter((row) => !filters.music || row.value === filters.music),
+    (value) => TRACK_NAMES[value] || value, 'music', '#3d9ca8');
+  renderCategory(charts.decision, (d.decisions || []).filter((row) => !filters.decision || row.value === filters.decision),
+    (value) => decisionNames[value] || value, 'decision', '#df3f36');
+  renderCategory(charts.country, (d.countries || []).filter((row) => !filters.country || row.value === filters.country),
+    (value) => value, 'country', '#6a9f50');
+  $('top-items').innerHTML = topItems(d.top_items || []);
+  $('org-table').innerHTML = orgTable(d.top_orgs || []);
+}
+
+function renderTrend(rawDays) {
+  trendRows = fillGaps(rawDays);
+  const labels = trendRows.map((row) => row.day);
+  const first = filters.from ? Math.max(0, labels.indexOf(filters.from)) : 0;
+  const last = filters.to && labels.includes(filters.to) ? labels.indexOf(filters.to) : Math.max(0, labels.length - 1);
+  const denominator = Math.max(1, labels.length - 1);
+  suppressZoom = true;
+  charts.trend.setOption({
+    animationDurationUpdate: 250,
+    color: ['#3d9ca8', '#df3f36'],
+    legend: { top: 0, data: ['Посетители', 'Розыгрыши'] },
+    tooltip: { trigger: 'axis' },
+    grid: { left: 46, right: 22, top: 38, bottom: 88 },
+    xAxis: { type: 'category', data: labels, boundaryGap: true,
+      axisLabel: { formatter: (value) => value.slice(8) + '.' + value.slice(5, 7), hideOverlap: true } },
+    yAxis: { type: 'value', minInterval: 1 },
+    dataZoom: [
+      { type: 'slider', xAxisIndex: 0, bottom: 17, height: 26,
+        start: first / denominator * 100, end: last / denominator * 100,
+        minSpan: 100 / Math.max(1, labels.length) },
+      { type: 'inside', xAxisIndex: 0 }
+    ],
+    series: [
+      { name: 'Посетители', type: 'bar', data: trendRows.map((row) => row.visitors || 0),
+        barMaxWidth: 20, itemStyle: { borderRadius: [3, 3, 0, 0] } },
+      { name: 'Розыгрыши', type: 'bar', data: trendRows.map((row) => row.spins || 0),
+        barMaxWidth: 20, itemStyle: { borderRadius: [3, 3, 0, 0] } }
+    ]
+  }, { notMerge: true });
+  suppressZoom = false;
+  $('day-table').innerHTML = dayTable(trendRows);
+}
+
+function renderCategory(chart, rows, labelFn, filterKey, color) {
+  const shown = rows.slice(0, 15).reverse();
+  const element = chart.getDom();
+  element.style.height = `${Math.max(230, shown.length * 32 + 60)}px`;
+  chart.resize();
+  chart.setOption({
+    animationDurationUpdate: 250,
+    grid: { left: 145, right: 34, top: 12, bottom: 16 },
+    tooltip: { trigger: 'item', formatter: (params) => `${params.name}: ${num(params.value)}` },
+    xAxis: { type: 'value', minInterval: 1, axisLabel: { color: '#8a7a68' }, splitLine: { lineStyle: { color: '#e2dbcd' } } },
+    yAxis: { type: 'category', data: shown.map((row) => labelFn(row.value)),
+      axisLabel: { width: 135, overflow: 'truncate', color: '#2d2723' } },
+    series: [{ type: 'bar', barMaxWidth: 20,
+      data: shown.map((row) => ({ name: labelFn(row.value), value: row.count || 0,
+        raw: row.value,
+        itemStyle: { color: filterKey && filters[filterKey] === row.value ? '#a92227' : color,
+          borderRadius: [0, 3, 3, 0] } })) }]
+  }, { notMerge: true });
 }
 
 function topItems(rows) {
@@ -297,84 +435,6 @@ function orgTable(rows) {
       <td class="num">${num(r.spins)}</td>
     </tr>`).join('')}
   </table>`;
-}
-
-function sparkline(rawDays) {
-  if (!rawDays.length) return '<p class="empty">Пока нет данных</p>';
-
-  // Дни без визитов в выборку не попадают, поэтому дорисовываем их
-  // нулями: иначе провал в посещаемости выглядел бы как обычный день
-  const days = fillGaps(rawDays);
-
-  const w = 1000, h = 260;
-  const padL = 44, padR = 16, padT = 28, padB = 46;
-  const plotW = w - padL - padR;
-  const plotH = h - padT - padB;
-
-  const maxVal = Math.max(...days.map((d) => Math.max(d.visitors || 0, d.spins || 0)), 1);
-  // Округляем потолок вверх до «круглого» числа, чтобы подписи оси
-  // читались как 5/10/20, а не как 7/14/21
-  const step = maxVal <= 5 ? 1 : maxVal <= 20 ? 5 : maxVal <= 50 ? 10 : 20;
-  const top = Math.ceil(maxVal / step) * step;
-
-  // Столбцы: при одном дне ширину берём как для трёх, иначе он растянется
-  const slot = plotW / Math.max(days.length, 3);
-  const barW = Math.min(slot * 0.34, 22);
-  const cx = (i) => padL + slot * (i + 0.5);
-  const y = (v) => padT + plotH - ((v || 0) / top) * plotH;
-
-  // Подписи дат: при длинном периоде показываем не все, иначе сольются
-  const labelEvery = Math.ceil(days.length / 12);
-  const dayLabel = (d) => d.day.slice(8) + '.' + d.day.slice(5, 7);
-
-  const gridLines = [];
-  for (let v = 0; v <= top; v += step) {
-    gridLines.push(`<line x1="${padL}" y1="${y(v)}" x2="${w - padR}" y2="${y(v)}"
-      stroke="#e2dbcd" stroke-width="1"/>
-      <text x="${padL - 8}" y="${y(v) + 4}" font-size="12" fill="#8a7a68"
-        text-anchor="end">${v}</text>`);
-  }
-
-  const bars = days.map((d, i) => {
-    const vis = d.visitors || 0;
-    const sp = d.spins || 0;
-    const label = i % labelEvery === 0 || i === days.length - 1
-      ? `<text x="${cx(i)}" y="${h - padB + 18}" font-size="11" fill="#8a7a68"
-           text-anchor="middle">${esc(dayLabel(d))}</text>` : '';
-
-    return `<g>
-      <title>${esc(d.day)}: посетителей ${vis}, розыгрышей ${sp}</title>
-      <rect x="${cx(i) - barW}" y="${y(vis)}" width="${barW}"
-        height="${Math.max(padT + plotH - y(vis), vis ? 2 : 0)}"
-        fill="#3d9ca8" rx="2"/>
-      <rect x="${cx(i)}" y="${y(sp)}" width="${barW}"
-        height="${Math.max(padT + plotH - y(sp), sp ? 2 : 0)}"
-        fill="#df3f36" rx="2"/>
-      ${vis ? `<text x="${cx(i) - barW / 2}" y="${y(vis) - 5}" font-size="11"
-        fill="#2b6b76" text-anchor="middle" font-weight="600">${vis}</text>` : ''}
-      ${sp ? `<text x="${cx(i) + barW / 2}" y="${y(sp) - 5}" font-size="11"
-        fill="#a92227" text-anchor="middle" font-weight="600">${sp}</text>` : ''}
-      ${label}
-    </g>`;
-  }).join('');
-
-  const totalVis = days.reduce((s, d) => s + (d.visitors || 0), 0);
-  const totalSpins = days.reduce((s, d) => s + (d.spins || 0), 0);
-
-  return `
-    <div class="chart-legend">
-      <span><i style="background:#3d9ca8"></i> посетители · всего ${num(totalVis)}</span>
-      <span><i style="background:#df3f36"></i> розыгрыши · всего ${num(totalSpins)}</span>
-    </div>
-    <div class="chart-scroll">
-      <svg viewBox="0 0 ${w} ${h}" role="img" style="min-width:${Math.max(days.length * 46, 600)}px">
-        ${gridLines.join('')}
-        ${bars}
-        <line x1="${padL}" y1="${padT + plotH}" x2="${w - padR}" y2="${padT + plotH}"
-          stroke="#b5a891" stroke-width="2"/>
-      </svg>
-    </div>
-    ${dayTable(days)}`;
 }
 
 // Дозаполнение пропущенных дат нулями
@@ -480,12 +540,13 @@ let sessionFilter = {};
 
 async function loadSessions(filter) {
   sessionFilter = filter || {};
-  const root = $('root');
+  const root = $('sessions-view');
   root.innerHTML = '<p class="empty">Загружаю…</p>';
   try {
-    const qs = new URLSearchParams(
-      Object.entries(sessionFilter).filter(([, v]) => v)).toString();
-    const res = await fetch(`/api/sessions${qs ? '?' + qs : ''}`,
+    const qs = queryFilters();
+    Object.entries(sessionFilter).filter(([, value]) => value)
+      .forEach(([key, value]) => qs.set(key, value));
+    const res = await fetch(`/api/sessions?${qs}`,
       { credentials: 'same-origin' });
     if (!res.ok) throw new Error('HTTP ' + res.status);
     renderSessions(await res.json());
@@ -503,7 +564,7 @@ function renderSessions(d) {
   const rows = d.sessions || [];
   const active = Object.entries(sessionFilter).filter(([, v]) => v);
 
-  $('root').innerHTML = `
+  $('sessions-view').innerHTML = `
     <div class="filter">
       <input id="q" placeholder="IP, хеш сети, visitor_id или слово из списка"
              value="${esc(sessionFilter.q || '')}">
@@ -613,14 +674,35 @@ function switchTab(next) {
   tab = next;
   $('tab-metrics').classList.toggle('on', tab === 'metrics');
   $('tab-sessions').classList.toggle('on', tab === 'sessions');
-  $('period').style.display = tab === 'metrics' ? '' : 'none';
-  if (tab === 'metrics') load(); else loadSessions(null);
+  $('metrics-view').hidden = tab !== 'metrics';
+  $('sessions-view').hidden = tab !== 'sessions';
+  if (tab === 'metrics') Object.values(charts).forEach((chart) => chart.resize());
+  refresh();
 }
 
 $('tab-metrics').onclick = () => switchTab('metrics');
 $('tab-sessions').onclick = () => switchTab('sessions');
-$('period').addEventListener('change', () => { if (tab === 'metrics') load(); });
-load();
+$('period').addEventListener('change', () => {
+  if ($('period').value === 'custom') return;
+  filters.days = $('period').value;
+  filters.from = '';
+  filters.to = '';
+  refresh();
+});
+for (const [id, key] of [['date-from', 'from'], ['date-to', 'to']]) {
+  $(id).addEventListener('change', () => {
+    filters[key] = $(id).value;
+    if (filters.from && filters.to && filters.from > filters.to)
+      [filters.from, filters.to] = [filters.to, filters.from];
+    refresh();
+  });
+}
+try {
+  initCharts();
+  refresh();
+} catch (error) {
+  $('metric-status').textContent = error.message;
+}
 </script>
 </body>
 </html>
