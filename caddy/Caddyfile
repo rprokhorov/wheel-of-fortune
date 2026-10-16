@@ -13,7 +13,7 @@
 			max_size 65536
 		}
 		reverse_proxy collector:8081 {
-			header_up X-Real-IP {http.request.remote.host}
+			header_up X-Real-IP {client_ip}
 		}
 	}
 
